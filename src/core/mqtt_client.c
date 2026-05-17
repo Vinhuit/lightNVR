@@ -728,12 +728,12 @@ int mqtt_publish_ha_discovery(void) {
             // Motion: initially OFF
             snprintf(topic, sizeof(topic), "%s/cameras/%s/motion",
                      topic_prefix, safe_name);
-            mqtt_publish_raw(topic, "OFF", false);
+            mqtt_publish_raw(topic, "OFF", true);
 
             // Detection count: initially 0
             snprintf(topic, sizeof(topic), "%s/cameras/%s/detection_count",
                      topic_prefix, safe_name);
-            mqtt_publish_raw(topic, "0", false);
+            mqtt_publish_raw(topic, "0", true);
         }
     }
 
@@ -830,7 +830,7 @@ void mqtt_set_motion_state(const char *stream_name, const detection_result_t *re
         char topic[MAX_TOPIC_LENGTH];
         snprintf(topic, sizeof(topic), "%s/cameras/%s/motion",
                  mqtt_config->mqtt_topic_prefix, safe_name);
-        mqtt_publish_raw(topic, "ON", false);
+        mqtt_publish_raw(topic, "ON", true);
         log_debug("MQTT HA: Motion ON for %s", stream_name);
     }
 
@@ -841,7 +841,7 @@ void mqtt_set_motion_state(const char *stream_name, const detection_result_t *re
                  mqtt_config->mqtt_topic_prefix, safe_name);
         char count_str[16];
         snprintf(count_str, sizeof(count_str), "%d", total_count);
-        mqtt_publish_raw(topic, count_str, false);
+        mqtt_publish_raw(topic, count_str, true);
     }
 
     // Publish per-object-class counts
@@ -851,7 +851,7 @@ void mqtt_set_motion_state(const char *stream_name, const detection_result_t *re
                  mqtt_config->mqtt_topic_prefix, safe_name, labels_copy[i]);
         char count_str[16];
         snprintf(count_str, sizeof(count_str), "%d", counts_copy[i]);
-        mqtt_publish_raw(topic, count_str, false);
+        mqtt_publish_raw(topic, count_str, true);
     }
 }
 
@@ -895,7 +895,7 @@ static void *ha_snapshot_thread_func(void *arg) {
                 char topic[MAX_TOPIC_LENGTH];
                 snprintf(topic, sizeof(topic), "%s/cameras/%s/snapshot",
                          mqtt_config->mqtt_topic_prefix, safe_name);
-                mqtt_publish_binary(topic, jpeg_data, jpeg_size, false);
+                mqtt_publish_binary(topic, jpeg_data, jpeg_size, true);
                 log_debug("MQTT HA: Published snapshot for %s (%zu bytes)",
                           streams[i].name, jpeg_size);
                 free(jpeg_data);
@@ -950,13 +950,13 @@ static void *ha_motion_thread_func(void *arg) {
                 char topic[MAX_TOPIC_LENGTH];
                 snprintf(topic, sizeof(topic), "%s/cameras/%s/motion",
                          mqtt_config->mqtt_topic_prefix, safe_name);
-                mqtt_publish_raw(topic, "OFF", false);
+                mqtt_publish_raw(topic, "OFF", true);
                 log_debug("MQTT HA: Motion OFF for %s (timeout)", stream_name);
 
                 // Reset detection count to 0
                 snprintf(topic, sizeof(topic), "%s/cameras/%s/detection_count",
                          mqtt_config->mqtt_topic_prefix, safe_name);
-                mqtt_publish_raw(topic, "0", false);
+                mqtt_publish_raw(topic, "0", true);
 
                 pthread_mutex_lock(&motion_mutex);
             }
@@ -1319,4 +1319,3 @@ int mqtt_reinit(const config_t *config) {
 }
 
 #endif /* ENABLE_MQTT */
-

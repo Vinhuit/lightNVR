@@ -143,14 +143,32 @@ void handle_recordings_thumbnail(const http_request_t *req, http_response_t *res
         return;
     }
 
+    // Get recording metadata before serving any cached image. Thumbnail
+    // filenames are keyed by recording id/index, so stale cache files can
+    // otherwise survive database rebuilds or resyncs where an id points at a
+    // different file.
+    recording_metadata_t recording = {0};
+    if (get_recording_metadata_by_id(id, &recording) != 0) {
+        http_response_set_json_error(res, 404, "Recording not found");
+        return;
+    }
+
+    struct stat recording_st;
+    if (stat(recording.file_path, &recording_st) != 0) {
+        http_response_set_json_error(res, 404, "Recording file not found");
+        return;
+    }
+
     // Build thumbnail path
     char thumb_path[MAX_PATH_LENGTH];
     snprintf(thumb_path, sizeof(thumb_path), "%s/thumbnails/%llu_%d.jpg",
              g_config.storage_path, (unsigned long long)id, index);
 
-    // Check if thumbnail already exists (cached)
-    struct stat st;
-    if (stat(thumb_path, &st) == 0 && st.st_size > 0) {
+    // Check if thumbnail already exists and is newer than the recording file.
+    struct stat thumb_st;
+    int thumb_stat_rc = stat(thumb_path, &thumb_st);
+    if (thumb_stat_rc == 0 && thumb_st.st_size > 0 &&
+        thumb_st.st_mtime >= recording_st.st_mtime) {
         // Serve cached thumbnail
         log_debug("Serving cached thumbnail: %s", thumb_path);
         if (http_serve_file(req, res, thumb_path, "image/jpeg",
@@ -160,18 +178,8 @@ void handle_recordings_thumbnail(const http_request_t *req, http_response_t *res
         return;
     }
 
-    // Thumbnail doesn't exist - need to generate it
-    // Get recording metadata
-    recording_metadata_t recording = {0};
-    if (get_recording_metadata_by_id(id, &recording) != 0) {
-        http_response_set_json_error(res, 404, "Recording not found");
-        return;
-    }
-
-    // Check recording file exists
-    if (stat(recording.file_path, &st) != 0) {
-        http_response_set_json_error(res, 404, "Recording file not found");
-        return;
+    if (thumb_stat_rc == 0 && thumb_st.st_size > 0) {
+        unlink(thumb_path);
     }
 
     // Ensure thumbnails directory exists
@@ -251,4 +259,3 @@ void delete_recording_thumbnails(uint64_t recording_id) {
         // Silently ignore if thumbnail doesn't exist (ENOENT)
     }
 }
-

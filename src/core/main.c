@@ -24,6 +24,7 @@
 #include "core/daemon.h"
 #include "core/shutdown_coordinator.h"
 #include "core/curl_init.h"
+#include "core/enrichment_worker.h"
 #include "core/mqtt_client.h"
 #include "core/path_utils.h"
 #include "utils/strings.h"
@@ -945,6 +946,10 @@ int main(int argc, char *argv[]) {
     start_health_check_thread();
     log_info("Web server health check system started");
 
+    if (start_enrichment_worker() != 0) {
+        log_warn("Failed to start enrichment worker; GenAI jobs will remain queued");
+    }
+
     // In daemon mode, add extra verification that the port is actually open
     if (daemon_mode) {
         log_info("Daemon mode: Verifying port %d is accessible...", config.web_port);
@@ -1180,6 +1185,9 @@ int main(int argc, char *argv[]) {
     log_info("Stopping health check system...");
     cleanup_health_check_system();
 
+    log_info("Stopping enrichment worker...");
+    stop_enrichment_worker();
+
     // Shutdown telemetry subsystem
     log_info("Shutting down telemetry...");
     metrics_shutdown();
@@ -1301,6 +1309,9 @@ cleanup:
 
         // Note: Web server and health check system were already stopped before the fork
         // to prevent serving requests during shutdown
+
+        log_info("Stopping enrichment worker...");
+        stop_enrichment_worker();
 
         // Clean up go2rtc integration (inside watchdog-protected block)
         // This includes stopping the health monitor thread which can block

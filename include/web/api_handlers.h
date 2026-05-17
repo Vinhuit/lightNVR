@@ -93,6 +93,11 @@ void handle_post_recordings_sync(const http_request_t *req, http_response_t *res
 void handle_get_detection_results(const http_request_t *req, http_response_t *res);
 
 /**
+ * @brief Handler for GET /api/detection/labels/:stream
+ */
+void handle_get_detection_labels(const http_request_t *req, http_response_t *res);
+
+/**
  * @brief Handler for GET /api/detection/models
  */
 void handle_get_detection_models(const http_request_t *req, http_response_t *res);

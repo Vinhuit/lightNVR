@@ -171,15 +171,14 @@ DELETE /api/streams/{stream_name}/zones
 
 ## Integration with light-object-detect
 
-When detection is triggered, lightNVR sends zone configuration to the light-object-detect API:
+When detection is triggered, lightNVR sends a frame to the light-object-detect API and applies the configured zones locally after the API returns detections:
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/detect" \
-  -F "file=@frame.jpg" \
-  -F "zones={\"zones\":[...],\"zone_mode\":\"center\"}"
+curl -X POST "http://localhost:9001/api/v1/detect" \
+  -F "file=@frame.jpg"
 ```
 
-The API filters detections based on the zones and returns only detections within the configured zones.
+The API returns raw detections, then LightNVR filters them against the stream's zones, class filters, and confidence thresholds before storing or publishing results.
 
 ## Configuration Example
 
@@ -303,4 +302,3 @@ Potential future improvements:
 - Time-based zone activation
 - Zone templates for common scenarios
 - Zone analytics and statistics
-

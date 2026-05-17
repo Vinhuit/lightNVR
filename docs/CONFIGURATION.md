@@ -80,6 +80,13 @@ url = http://localhost:9001/api/v1/detect
 backend = onnx  ; Detection backend: onnx (YOLOv8), tflite, or opencv
 confidence_threshold = 0.35
 filter_classes = car,motorcycle,truck,bus,bicycle  ; Comma-separated class filter
+genai_enabled = false
+genai_provider = external
+genai_api_url =
+genai_model =
+genai_api_key_env = OPENAI_API_KEY
+face_recognition_enabled = false
+face_recognition_api_url =
 
 [memory]
 buffer_size = 1024  ; Buffer size in KB
@@ -267,12 +274,26 @@ url = http://localhost:9001/api/v1/detect
 backend = onnx
 confidence_threshold = 0.35
 filter_classes = car,motorcycle,truck,bus,bicycle
+genai_enabled = false
+genai_provider = external
+genai_api_url =
+genai_model =
+genai_api_key_env = OPENAI_API_KEY
+face_recognition_enabled = false
+face_recognition_api_url =
 ```
 
 - `url`: URL of the external detection API
-- `backend`: Detection backend to use: `onnx` (YOLOv8 - best accuracy), `tflite`, or `opencv`
+- `backend`: Detection backend to use. For `light-object-detect`, this is informational; the service chooses its own model/backend.
 - `confidence_threshold`: Minimum confidence threshold for detections (0.0-1.0)
 - `filter_classes`: Comma-separated list of object classes to detect (empty = all classes)
+- `genai_enabled`: Queue event-description enrichment jobs for newly created events
+- `genai_provider`: Provider label for external workers: `external`, `openai`, `gemini`, `ollama`, or `openai_compatible`
+- `genai_api_url`: External worker/provider URL. Common values are `https://api.openai.com/v1/responses` for OpenAI, `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` for Gemini, and `http://localhost:11434/api/chat` for Ollama.
+- `genai_model`: Model name passed to an external worker, such as `gpt-4.1-mini`, `gemini-2.5-flash`, or `llava`
+- `genai_api_key_env`: Environment variable name containing the provider API key; keep the secret out of the config file
+- `face_recognition_enabled`: Queue face-recognition enrichment jobs for newly created person events
+- `face_recognition_api_url`: External face-recognition worker URL, if one is used
 
 ### Memory Optimization
 

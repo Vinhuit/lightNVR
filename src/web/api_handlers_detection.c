@@ -20,6 +20,7 @@
 #include "video/go2rtc/go2rtc_integration.h"
 #include "video/unified_detection_thread.h"
 #include "database/database_manager.h"
+#include "database/db_detections.h"
 
 // Minimum/default window for live-view detection queries (seconds).
 // The actual window is max(MIN_DETECTION_AGE, stream_detection_interval * 2) so
@@ -205,4 +206,78 @@ void handle_get_detection_results(const http_request_t *req, http_response_t *re
     
     log_info("Successfully handled GET /api/detection/results/%s request, returned %d detections",
              stream_name, result.count);
+}
+
+/**
+ * @brief Backend-agnostic handler for GET /api/detection/labels/:stream
+ */
+void handle_get_detection_labels(const http_request_t *req, http_response_t *res) {
+    char stream_name[MAX_STREAM_NAME];
+    if (http_request_extract_path_param(req, "/api/detection/labels/", stream_name, sizeof(stream_name)) != 0) {
+        log_error("Failed to extract stream name from detection labels URL");
+        http_response_set_json_error(res, 400, "Invalid request path");
+        return;
+    }
+
+    time_t start_time = 0;
+    time_t end_time = time(NULL);
+
+    char start_str[32] = {0};
+    if (http_request_get_query_param(req, "start", start_str, sizeof(start_str)) > 0 && start_str[0]) {
+        start_time = (time_t)strtoll(start_str, NULL, 10);
+    }
+
+    char end_str[32] = {0};
+    if (http_request_get_query_param(req, "end", end_str, sizeof(end_str)) > 0 && end_str[0]) {
+        end_time = (time_t)strtoll(end_str, NULL, 10);
+    }
+
+    if (end_time <= 0) {
+        end_time = time(NULL);
+    }
+
+    detection_label_summary_t labels[MAX_UNIQUE_DETECTION_LABELS];
+    int count = get_detection_labels_summary(stream_name, start_time, end_time,
+                                             labels, MAX_UNIQUE_DETECTION_LABELS);
+    if (count < 0) {
+        log_error("Failed to get detection labels for stream: %s", stream_name);
+        http_response_set_json_error(res, 500, "Failed to get detection labels");
+        return;
+    }
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON *labels_array = cJSON_CreateArray();
+    if (!response || !labels_array) {
+        cJSON_Delete(response);
+        cJSON_Delete(labels_array);
+        http_response_set_json_error(res, 500, "Failed to create response JSON");
+        return;
+    }
+
+    cJSON_AddStringToObject(response, "stream", stream_name);
+    cJSON_AddNumberToObject(response, "start", (double)start_time);
+    cJSON_AddNumberToObject(response, "end", (double)end_time);
+
+    for (int i = 0; i < count; i++) {
+        cJSON *label = cJSON_CreateObject();
+        if (!label) {
+            continue;
+        }
+        cJSON_AddStringToObject(label, "label", labels[i].label);
+        cJSON_AddNumberToObject(label, "count", labels[i].count);
+        cJSON_AddItemToArray(labels_array, label);
+    }
+
+    cJSON_AddItemToObject(response, "labels", labels_array);
+
+    char *json_str = cJSON_PrintUnformatted(response);
+    if (!json_str) {
+        cJSON_Delete(response);
+        http_response_set_json_error(res, 500, "Failed to convert response JSON");
+        return;
+    }
+
+    http_response_set_json(res, 200, json_str);
+    free(json_str);
+    cJSON_Delete(response);
 }

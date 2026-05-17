@@ -16,13 +16,15 @@ LightNVR provides a lightweight yet powerful solution for recording and managing
 
 ![Live Streams Interface](docs/images/live-streams.png)
 
-> **✨ New Features:** Detection zones with visual polygon editor, customizable themes, enhanced light-object-detect integration, and ultra-low-latency WebRTC streaming!
+> **✨ New Features:** Detection zones with visual polygon editor, event review, GenAI summaries, camera-discovered face crops, enhanced light-object-detect integration, Home Assistant MQTT discovery, and ultra-low-latency WebRTC streaming!
 
 ### Key Features
 
 #### 🎯 Smart Detection & Recording
 - **Detection Zones**: Visual polygon-based zone editor for targeted object detection - define multiple zones per camera with custom class filters and confidence thresholds
 - **light-object-detect Integration**: Seamless integration with [light-object-detect](https://github.com/opensensor/light-object-detect) API for ONNX/TFLite-based object detection with zone filtering
+- **Event Review & Enrichment**: Groups frame detections into higher-level events, stores snapshots, and can enrich events with GenAI descriptions
+- **Face Crop Review**: Saves unknown face crop candidates from person events so they can be named from camera footage instead of manual upload only
 - **ONVIF Motion Events**: Automated recording triggered by ONVIF motion detection events
 - **Object Detection**: Optional SOD integration for motion and object detection (supports both RealNet and CNN models)
 
@@ -37,6 +39,7 @@ LightNVR provides a lightweight yet powerful solution for recording and managing
 - **Dark/Light Mode**: Automatic system preference detection with manual override
 - **Color Intensity Control**: Fine-tune theme brightness and contrast to your preference
 - **Responsive Design**: Built with Tailwind CSS and Preact for smooth, modern UX
+- **Events & Faces Views**: Review detection snapshots, jump to timeline playback, browse unknown faces, and assign names
 
 #### 🔧 Core Capabilities
 - **Cross-Platform**: Runs on any Linux system, from embedded devices to full servers
@@ -88,6 +91,12 @@ Built-in demo mode with virtual test streams for development and evaluation with
 
 ### Auto-Generated Credentials (v0.21.7)
 Admin password is now auto-generated on first run for improved out-of-box security.
+
+### Frigate-Style Enrichment
+Adds a lightweight event/enrichment layer: event snapshots, GenAI summaries through OpenAI/Gemini/Ollama/OpenAI-compatible endpoints, face-recognition proxy APIs, and unknown face crops that can be named from camera events.
+
+### Home Assistant MQTT Retained State
+MQTT Home Assistant discovery now publishes retained motion, detection count, per-object count, and snapshot states so entities do not remain unavailable after broker or Home Assistant restarts.
 
 ## 💡 Use Cases
 
@@ -193,9 +202,45 @@ Powerful object detection using modern ONNX and TFLite models with zone-aware fi
 **Integration features:**
 - Per-stream API endpoint configuration
 - Configurable detection backends (ONNX, TFLite, OpenCV)
+- Global object-class filter for API detection, with empty filter meaning detect all classes returned by the detection service
 - Zone-based filtering to reduce false positives
 - Track ID and zone ID support for advanced analytics
 - Direct go2rtc frame extraction (no FFmpeg overhead)
+- Optional face recognition endpoints when `light-object-detect` is started with face support
+- Optional face crop output for person events, enabling camera-based unknown-face naming
+
+### Event Enrichment and Face Review
+
+LightNVR can now promote raw frame detections into durable events. Events keep the best snapshot, recording/timeline links, object label, confidence, stream, zone, and enrichment metadata.
+
+**Event workflow:**
+- Object detection creates or updates an event for the stream/object/track
+- The Events view shows event snapshots and enrichment status
+- Clicking an event opens the timeline near the event time
+- Optional GenAI enrichment sends an event snapshot to OpenAI, Gemini, Ollama, or an OpenAI-compatible endpoint
+
+**Face workflow:**
+- Person events can be sent to a face service such as `light-object-detect`
+- Unknown face crops are stored under the data directory
+- The Faces view shows recent unknown crops
+- Naming a crop trains the external face service and labels the event with that name
+
+Configure these features under **Settings** -> **Detection**:
+
+```ini
+[detection]
+url = http://light-object-detect:8000/api/v1/detect
+filter_classes =
+genai_enabled = false
+genai_provider = openai_compatible
+genai_api_url = http://localhost:11434/v1
+genai_model = llava
+genai_api_key_env = OPENAI_API_KEY
+face_recognition_enabled = false
+face_recognition_api_url = http://light-object-detect:8000/api/v1/faces
+```
+
+Keep provider keys in environment variables such as `OPENAI_API_KEY` or `GEMINI_API_KEY`; do not store raw API keys in `lightnvr.ini`.
 
 ## Screenshots
 
@@ -354,6 +399,8 @@ The container will automatically:
 
 Access the web UI at `http://localhost:8080` (default username: `admin`, password is auto-generated on first run — check logs)
 
+This repository also includes a compose service for `light-object-detect` so the detection and face APIs are available inside the Docker network at `http://light-object-detect:8000`.
+
 #### Using Docker Run
 
 Images are published to both Docker Hub and GHCR on every tagged release:
@@ -364,6 +411,12 @@ docker pull matteius/lightnvr:latest
 
 # GitHub Container Registry
 docker pull ghcr.io/opensensor/lightnvr:latest
+```
+
+An enriched test image is also available:
+
+```bash
+docker pull caubequay00/lighnvr-enrich:mqtt-retain
 ```
 
 ```bash
@@ -379,6 +432,18 @@ docker run -d \
   -v ./data:/var/lib/lightnvr/data \
   -e TZ=America/New_York \
   matteius/lightnvr:latest
+```
+
+For the enriched image:
+
+```bash
+docker run -d \
+  --name lightnvr \
+  --restart unless-stopped \
+  -p 18080:8080 \
+  -v ./config:/etc/lightnvr \
+  -v ./data:/var/lib/lightnvr/data \
+  caubequay00/lighnvr-enrich:mqtt-retain
 ```
 
 #### Volume Mounts Explained

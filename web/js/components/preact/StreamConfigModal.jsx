@@ -24,6 +24,15 @@ const getDetectionModelSelectValue = (modelValue) => {
   return isCustomApiUrl(modelValue) ? 'api-detection' : modelValue;
 };
 
+const parseObjectFilterList = (value) =>
+  (value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+
+const formatObjectFilterList = (items) =>
+  Array.from(new Set(items.map(item => item.trim()).filter(Boolean))).join(',');
+
 /**
  * Recording Schedule Grid Component
  * Interactive 7-day × 24-hour weekly grid for scheduling continuous recording
@@ -295,6 +304,8 @@ export function StreamConfigModal({
   const { t } = useI18n();
   const [showZoneEditor, setShowZoneEditor] = useState(false);
   const [detectionZones, setDetectionZones] = useState(currentStream.detectionZones || []);
+  const [availableObjectLabels, setAvailableObjectLabels] = useState([]);
+  const [objectLabelsLoading, setObjectLabelsLoading] = useState(false);
 
   // Keep a ref to onInputChange so the zones-load effect never needs it as a
   // dependency. If we put onInputChange in the dependency array, calling it
@@ -372,6 +383,59 @@ export function StreamConfigModal({
 
     loadZones();
   }, [isEditing, currentStream.name]);
+
+  const loadObjectLabels = useCallback(async () => {
+    if (!isEditing || !currentStream.name) {
+      setAvailableObjectLabels([]);
+      return;
+    }
+
+    setObjectLabelsLoading(true);
+    try {
+      const response = await fetch(`/api/detection/labels/${encodeURIComponent(currentStream.name)}`);
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const labels = Array.isArray(data.labels)
+        ? data.labels
+            .map(item => (typeof item === 'string' ? item : item?.label))
+            .filter(Boolean)
+        : [];
+      setAvailableObjectLabels(Array.from(new Set(labels)).sort((a, b) => a.localeCompare(b)));
+    } catch (error) {
+      console.warn('Failed to load stream detection object labels:', error);
+      setAvailableObjectLabels([]);
+    } finally {
+      setObjectLabelsLoading(false);
+    }
+  }, [isEditing, currentStream.name]);
+
+  useEffect(() => {
+    loadObjectLabels();
+  }, [loadObjectLabels]);
+
+  const selectedObjectLabels = parseObjectFilterList(currentStream.detectionObjectFilterList);
+
+  const setObjectFilterList = useCallback((nextLabels) => {
+    onInputChange({
+      target: {
+        name: 'detectionObjectFilterList',
+        value: formatObjectFilterList(nextLabels),
+      },
+    });
+  }, [onInputChange]);
+
+  const toggleObjectLabel = useCallback((label) => {
+    const selected = new Set(parseObjectFilterList(currentStream.detectionObjectFilterList));
+    if (selected.has(label)) {
+      selected.delete(label);
+    } else {
+      selected.add(label);
+    }
+    setObjectFilterList(Array.from(selected));
+  }, [currentStream.detectionObjectFilterList, setObjectFilterList]);
 
   const handleZonesChange = (zones) => {
     setDetectionZones(zones);
@@ -1058,14 +1122,59 @@ export function StreamConfigModal({
                             {currentStream.detectionObjectFilter === 'include' ? t('streamsConfig.includeObjects') : t('streamsConfig.excludeObjects')}
                           </label>
                           <input
-                            type="text"
+                            type="hidden"
                             id="stream-detection-object-filter-list"
                             name="detectionObjectFilterList"
-                            className="w-full px-3 py-2 border border-input rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
-                            placeholder={t('streamsConfig.objectFilterListPlaceholder')}
                             value={currentStream.detectionObjectFilterList || ''}
-                            onChange={onInputChange}
                           />
+                          <div className="flex flex-wrap gap-2 rounded-md border border-input bg-background p-2 min-h-[42px]">
+                            {objectLabelsLoading ? (
+                              <span className="text-xs text-muted-foreground">Loading existing objects...</span>
+                            ) : availableObjectLabels.length > 0 ? (
+                              availableObjectLabels.map(label => {
+                                const selected = selectedObjectLabels.includes(label);
+                                return (
+                                  <button
+                                    key={label}
+                                    type="button"
+                                    className={`px-2 py-1 rounded border text-xs transition-colors ${
+                                      selected
+                                        ? 'bg-primary text-primary-foreground border-primary'
+                                        : 'bg-secondary text-secondary-foreground border-border hover:bg-secondary/80'
+                                    }`}
+                                    onClick={() => toggleObjectLabel(label)}
+                                    aria-pressed={selected}
+                                  >
+                                    {label}
+                                  </button>
+                                );
+                              })
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No existing objects found for this stream yet.</span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {selectedObjectLabels.map(label => (
+                              <span key={label} className="inline-flex items-center gap-1 rounded bg-primary/10 text-primary px-2 py-1 text-xs">
+                                {label}
+                                <button
+                                  type="button"
+                                  className="font-semibold"
+                                  onClick={() => toggleObjectLabel(label)}
+                                  aria-label={`Remove ${label}`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-2 text-xs text-primary hover:underline"
+                            onClick={loadObjectLabels}
+                          >
+                            Refresh object list
+                          </button>
                           <p className="mt-1 text-xs text-muted-foreground">
                             {currentStream.detectionObjectFilter === 'include'
                               ? t('streamsConfig.includeObjectsHelp')
@@ -1442,4 +1551,3 @@ export function StreamConfigModal({
     </>
   );
 }
-

@@ -154,6 +154,14 @@ typedef struct {
     // API detection settings
     char api_detection_url[MAX_URL_LENGTH]; // URL for the detection API
     char api_detection_backend[32];        // Backend to use: onnx, tflite, opencv (default: onnx)
+    char api_detection_filter_classes[256]; // Optional comma-separated class filter sent to API detection
+    bool genai_enabled;                    // Queue event description enrichment jobs
+    char genai_api_url[MAX_URL_LENGTH];    // External GenAI description service URL
+    char genai_provider[64];               // Provider label for metadata
+    char genai_model[128];                 // GenAI model name for external workers
+    char genai_api_key_env[128];           // Environment variable name containing provider API key
+    bool face_recognition_enabled;         // Queue face-recognition enrichment jobs for person events
+    char face_recognition_api_url[MAX_URL_LENGTH]; // External face-recognition service URL
 
     // Global detection defaults (used when per-stream settings are not specified)
     int default_detection_threshold;       // Default confidence threshold for detection (0-100)

@@ -33,6 +33,8 @@
 #include "web/api_handlers_recording_tags.h"
 #include "web/api_handlers_metrics.h"
 #include "web/api_handlers_motion.h"
+#include "web/api_handlers_events.h"
+#include "web/api_handlers_faces.h"
 #define LOG_COMPONENT "HTTP"
 #include "core/logger.h"
 #include "core/config.h"
@@ -134,8 +136,30 @@ int register_all_libuv_handlers(http_server_handle_t server) {
                                  handle_get_system_go2rtc_override_status);
 
     // Detection API
+    http_server_register_handler(server, "/api/detection/labels/#", "GET", handle_get_detection_labels);
     http_server_register_handler(server, "/api/detection/results/#", "GET", handle_get_detection_results);
     http_server_register_handler(server, "/api/detection/models", "GET", handle_get_detection_models);
+
+    // Detection Events API
+    http_server_register_handler(server, "/api/events/#/enrichments", "GET", handle_get_event_enrichments);
+    http_server_register_handler(server, "/api/events/#/enrichments", "POST", handle_post_event_enrichment);
+    http_server_register_handler(server, "/api/events/#/snapshot", "GET", handle_get_event_snapshot);
+    http_server_register_handler(server, "/api/events/#", "GET", handle_get_event);
+    http_server_register_handler(server, "/api/events", "GET", handle_get_events);
+    http_server_register_handler(server, "/api/enrichment/jobs/#/claim", "POST", handle_post_enrichment_job_claim);
+    http_server_register_handler(server, "/api/enrichment/jobs/#/complete", "POST", handle_post_enrichment_job_complete);
+    http_server_register_handler(server, "/api/enrichment/jobs/#/fail", "POST", handle_post_enrichment_job_fail);
+    http_server_register_handler(server, "/api/enrichment/jobs", "GET", handle_get_enrichment_jobs);
+
+    // Face Library API (proxied to light-object-detect)
+    http_server_register_handler(server, "/api/faces/list", "GET", handle_get_faces_list);
+    http_server_register_handler(server, "/api/faces/unknown-crops", "GET", handle_get_faces_unknown_crops);
+    http_server_register_handler(server, "/api/faces/crops/#/image", "GET", handle_get_face_crop_image);
+    http_server_register_handler(server, "/api/faces/train-crop", "POST", handle_post_faces_train_crop);
+    http_server_register_handler(server, "/api/faces/train-event", "POST", handle_post_faces_train_event);
+    http_server_register_handler(server, "/api/faces/train", "POST", handle_post_faces_train);
+    http_server_register_handler(server, "/api/faces/recognize", "POST", handle_post_faces_recognize);
+    http_server_register_handler(server, "/api/faces/#", "DELETE", handle_delete_face);
 
     // Storage Management API
     http_server_register_handler(server, "/api/storage/health", "GET", handle_get_storage_health);
@@ -256,4 +280,3 @@ int register_static_file_handler(http_server_handle_t server) {
 
     return 0;
 }
-

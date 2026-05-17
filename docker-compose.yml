@@ -34,8 +34,27 @@ services:
 
     networks:
       - lightnvr
+    depends_on:
+      - light-object-detect
+
+  # AI object detection + face recognition service.
+  # LightNVR reaches it at http://light-object-detect:8000
+  light-object-detect:
+    build:
+      context: ../light-object-detect
+    container_name: light-object-detect
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # Expose for direct access / testing from host
+    volumes:
+      # Persist the face embeddings database across container restarts
+      - light-object-detect-data:/app/data
+    networks:
+      - lightnvr
 
 networks:
   lightnvr:
     driver: bridge
 
+volumes:
+  light-object-detect-data:

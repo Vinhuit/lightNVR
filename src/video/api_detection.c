@@ -135,6 +135,28 @@ static const char *sanitize_backend(const char *backend) {
     return backend;
 }
 
+static const char *sanitize_filter_classes(const char *filter_classes) {
+    static const char *empty_filter = "";
+
+    if (filter_classes == NULL || filter_classes[0] == '\0') {
+        return empty_filter;
+    }
+
+    for (const char *p = filter_classes; *p != '\0'; ++p) {
+        char c = *p;
+        if (!((c >= 'A' && c <= 'Z') ||
+              (c >= 'a' && c <= 'z') ||
+              (c >= '0' && c <= '9') ||
+              c == '_' || c == '-' || c == ',')) {
+            log_warn("API Detection: Invalid character '%c' in filter_classes '%s'; not sending class filter.",
+                     c, filter_classes);
+            return empty_filter;
+        }
+    }
+
+    return filter_classes;
+}
+
 static bool validate_api_detection_base_url(const char *base_url, const char *context) {
     if (base_url == NULL) {
         log_error("%s: API URL is NULL.", context);
@@ -191,6 +213,7 @@ static int build_api_detection_url(char *buffer,
                                    size_t buffer_size,
                                    const char *base_url,
                                    const char *backend,
+                                   const char *filter_classes,
                                    float threshold,
                                    bool return_image_flag) {
     if (buffer == NULL || buffer_size == 0 || base_url == NULL || !is_safe_base_url(base_url)) {
@@ -198,6 +221,7 @@ static int build_api_detection_url(char *buffer,
     }
 
     const char *backend_param = sanitize_backend(backend);
+    const char *filter_param = sanitize_filter_classes(filter_classes);
     float actual_threshold = normalize_api_detection_threshold(threshold);
     const char *return_image_value = return_image_flag ? "true" : "false";
     char separator = (strchr(base_url, '?') != NULL) ? '&' : '?';
@@ -212,6 +236,16 @@ static int build_api_detection_url(char *buffer,
                            return_image_value);
     if (url_len < 0 || (size_t)url_len >= buffer_size) {
         return -1;
+    }
+
+    if (filter_param[0] != '\0') {
+        int filter_len = snprintf(buffer + url_len,
+                                  buffer_size - (size_t)url_len,
+                                  "&filter_classes=%s",
+                                  filter_param);
+        if (filter_len < 0 || (size_t)filter_len >= buffer_size - (size_t)url_len) {
+            return -1;
+        }
     }
 
     return 0;
@@ -417,10 +451,12 @@ int detect_objects_api(const char *api_url, const unsigned char *frame_data,
     int ret = -1;
     bool go2rtc_initialized = false;
     bool snapshot_ok = false;
+    time_t detection_capture_time = time(NULL);
 
     if (api_detection_should_use_go2rtc_snapshot(frame_data, width, height, channels, stream_name)) {
         go2rtc_initialized = go2rtc_integration_is_initialized();
         if (go2rtc_initialized) {
+            detection_capture_time = time(NULL);
             snapshot_ok = go2rtc_get_snapshot(stream_name, &jpeg_data, &jpeg_size);
         }
     }
@@ -531,6 +567,7 @@ int detect_objects_api(const char *api_url, const unsigned char *frame_data,
                                 sizeof(url_with_params),
                                 actual_api_url,
                                 backend,
+                                g_config.api_detection_filter_classes,
                                 threshold,
                                 false) != 0) {
         log_error("API Detection: Failed to construct URL with parameters.");
@@ -715,7 +752,7 @@ int detect_objects_api(const char *api_url, const unsigned char *frame_data,
 
         filter_detections_by_stream_objects(stream_name, result);
 
-        time_t timestamp = time(NULL);
+        time_t timestamp = detection_capture_time;
         store_detections_in_db(stream_name, result, timestamp, recording_id);
 
         if (result->count > 0) {
@@ -799,6 +836,7 @@ int detect_objects_api_snapshot(const char *api_url, const char *stream_name,
         return -2;  // Special return code: go2rtc not available, caller should fall back
     }
 
+    time_t detection_capture_time = time(NULL);
     if (!go2rtc_get_snapshot(stream_name, &jpeg_data, &jpeg_size)) {
         log_warn("API Detection (snapshot): Failed to get snapshot from go2rtc for stream %s", stream_name);
         return -2;  // Special return code: go2rtc failed, caller should fall back
@@ -903,6 +941,7 @@ int detect_objects_api_snapshot(const char *api_url, const char *stream_name,
                                 sizeof(url_with_params),
                                 actual_api_url,
                                 backend,
+                                g_config.api_detection_filter_classes,
                                 threshold,
                                 false) != 0) {
         log_error("API Detection (snapshot): URL too long when constructing request");
@@ -1080,7 +1119,7 @@ int detect_objects_api_snapshot(const char *api_url, const char *stream_name,
         // Filter detections by per-stream object include/exclude lists
         filter_detections_by_stream_objects(stream_name, result);
 
-        time_t timestamp = time(NULL);
+        time_t timestamp = detection_capture_time;
         store_detections_in_db(stream_name, result, timestamp, recording_id);
 
         // Publish to MQTT if enabled

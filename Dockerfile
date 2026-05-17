@@ -142,7 +142,12 @@ RUN mkdir -p /usr/lib/pkgconfig && \
 # Build go2rtc from local submodule (AlexxIT/go2rtc v1.9.14)
 # Go 1.26 is installed from Debian sid packages
 RUN mkdir -p /bin /etc/lightnvr/go2rtc && \
-    # Build go2rtc from local submodule (already copied by COPY . .)
+    if [ ! -f /opt/go2rtc/go.mod ]; then \
+        echo "go2rtc submodule is missing; cloning opensensor/go2rtc dev branch"; \
+        rm -rf /opt/go2rtc && \
+        git clone --depth 1 --branch dev https://github.com/opensensor/go2rtc.git /opt/go2rtc; \
+    fi && \
+    # Build go2rtc from local submodule or cloned fallback
     cd /opt/go2rtc && \
     GOTOOLCHAIN=auto go mod tidy && \
     GOTOOLCHAIN=auto CGO_ENABLED=0 go build -ldflags "-s -w" -trimpath -o /bin/go2rtc . && \
@@ -202,6 +207,10 @@ RUN mkdir -p /etc/lightnvr /var/lib/lightnvr/data /var/log/lightnvr /var/run/lig
     # Build the application with go2rtc and SOD dynamic linking
     PKG_CONFIG_PATH=/usr/lib/pkgconfig:$PKG_CONFIG_ARCH_PATH:$PKG_CONFIG_PATH \
     ./scripts/build.sh --release --with-sod --sod-dynamic --with-go2rtc --go2rtc-binary=/bin/go2rtc --go2rtc-config-dir=/etc/lightnvr/go2rtc --go2rtc-api-port=1984 && \
+    # Create a neutral default config for install.sh. Runtime entrypoint also
+    # creates defaults, so do not bake local camera/MQTT/API settings into images.
+    mkdir -p config && \
+    printf '; LightNVR Docker default configuration\n' > config/lightnvr.ini && \
     ./scripts/install.sh --prefix=/ --with-go2rtc --go2rtc-config-dir=/etc/lightnvr/go2rtc --without-systemd
 
 # Stage 2: Minimal runtime image

@@ -11,6 +11,7 @@
 #include <math.h>
 
 #include "database/db_detections.h"
+#include "database/db_detection_events.h"
 #include "database/db_core.h"
 #include "core/logger.h"
 #include "utils/strings.h"
@@ -156,6 +157,15 @@ int store_detections_in_db(const char *stream_name, const detection_result_t *re
     }
 
     pthread_mutex_unlock(db_mutex);
+
+    if (result->count > 0) {
+        int event_count = db_detection_events_observe(stream_name, result, timestamp, recording_id);
+        if (event_count < 0) {
+            log_warn("Failed to update detection events for stream %s", stream_name);
+        } else {
+            log_debug("Updated %d detection events for stream %s", event_count, stream_name);
+        }
+    }
 
     log_debug("Successfully stored %d detections in database for stream %s", result->count, stream_name);
     return 0;

@@ -62,6 +62,54 @@ function readTabFromHash() {
   }
 }
 
+const GENAI_PRESET_URLS = new Set([
+  '',
+  'https://api.openai.com/v1/responses',
+  'http://localhost:11434/api/chat',
+  'http://localhost:11434/v1',
+  'http://localhost:11434/v1/chat/completions',
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+  'http://localhost:9101/enrich',
+]);
+
+function getGenaiPreset(provider, prev) {
+  const shouldReplaceUrl = GENAI_PRESET_URLS.has(prev.genaiApiUrl || '');
+  const shouldReplaceModel = !prev.genaiModel;
+
+  if (provider === 'openai') {
+    return {
+      ...(shouldReplaceUrl ? { genaiApiUrl: 'https://api.openai.com/v1/responses' } : {}),
+      ...(shouldReplaceModel ? { genaiModel: 'gpt-5.4-mini' } : {}),
+      genaiApiKeyEnv: prev.genaiApiKeyEnv || 'OPENAI_API_KEY',
+    };
+  }
+
+  if (provider === 'ollama') {
+    return {
+      ...(shouldReplaceUrl ? { genaiApiUrl: 'http://localhost:11434/api/chat' } : {}),
+      ...(shouldReplaceModel ? { genaiModel: 'llava' } : {}),
+    };
+  }
+
+  if (provider === 'gemini') {
+    return {
+      ...(shouldReplaceUrl ? { genaiApiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent' } : {}),
+      ...(shouldReplaceModel ? { genaiModel: 'gemini-2.5-flash' } : {}),
+      genaiApiKeyEnv: prev.genaiApiKeyEnv || 'GEMINI_API_KEY',
+    };
+  }
+
+  if (provider === 'openai_compatible') {
+    return {
+      ...(shouldReplaceUrl ? { genaiApiUrl: 'http://localhost:11434/v1' } : {}),
+    };
+  }
+
+  return {
+    ...(shouldReplaceUrl ? { genaiApiUrl: 'http://localhost:9101/enrich' } : {}),
+  };
+}
+
 /**
  * SettingsView component
  */
@@ -106,9 +154,17 @@ export function SettingsView() {
     useSwap: true,
     swapSize: '128',
     detectionModelsPath: '',
-    apiDetectionUrl: 'http://localhost:8000/detect',
+    apiDetectionUrl: 'http://localhost:9001/api/v1/detect',
     apiDetectionBackend: 'onnx',
+    apiDetectionFilterClasses: '',
     defaultDetectionThreshold: 50,
+    genaiEnabled: false,
+    genaiApiUrl: '',
+    genaiProvider: 'external',
+    genaiModel: '',
+    genaiApiKeyEnv: 'OPENAI_API_KEY',
+    faceRecognitionEnabled: false,
+    faceRecognitionApiUrl: '',
     defaultPreBuffer: 5,
     defaultPostBuffer: 10,
     bufferStrategy: 'auto',
@@ -328,9 +384,17 @@ export function SettingsView() {
       useSwap: settingsData.use_swap || false,
       swapSize: settingsData.swap_size?.toString() || '',
       detectionModelsPath: settingsData.models_path || '',
-      apiDetectionUrl: settingsData.api_detection_url || 'http://localhost:8000/detect',
+      apiDetectionUrl: settingsData.api_detection_url || 'http://localhost:9001/api/v1/detect',
       apiDetectionBackend: settingsData.api_detection_backend || 'onnx',
+      apiDetectionFilterClasses: settingsData.api_detection_filter_classes || '',
       defaultDetectionThreshold: settingsData.default_detection_threshold || 50,
+      genaiEnabled: settingsData.genai_enabled || false,
+      genaiApiUrl: settingsData.genai_api_url || '',
+      genaiProvider: settingsData.genai_provider || 'external',
+      genaiModel: settingsData.genai_model || '',
+      genaiApiKeyEnv: settingsData.genai_api_key_env || 'OPENAI_API_KEY',
+      faceRecognitionEnabled: settingsData.face_recognition_enabled || false,
+      faceRecognitionApiUrl: settingsData.face_recognition_api_url || '',
       defaultPreBuffer: settingsData.pre_detection_buffer ?? 5,
       defaultPostBuffer: settingsData.post_detection_buffer ?? 10,
       bufferStrategy: settingsData.buffer_strategy || 'auto',
@@ -444,7 +508,15 @@ export function SettingsView() {
       models_path: settings.detectionModelsPath,
       api_detection_url: settings.apiDetectionUrl,
       api_detection_backend: settings.apiDetectionBackend,
+      api_detection_filter_classes: settings.apiDetectionFilterClasses,
       default_detection_threshold: settings.defaultDetectionThreshold,
+      genai_enabled: settings.genaiEnabled,
+      genai_api_url: settings.genaiApiUrl,
+      genai_provider: settings.genaiProvider,
+      genai_model: settings.genaiModel,
+      genai_api_key_env: settings.genaiApiKeyEnv,
+      face_recognition_enabled: settings.faceRecognitionEnabled,
+      face_recognition_api_url: settings.faceRecognitionApiUrl,
       pre_detection_buffer: parseInt(settings.defaultPreBuffer, 10),
       post_detection_buffer: parseInt(settings.defaultPostBuffer, 10),
       buffer_strategy: settings.bufferStrategy,
@@ -491,7 +563,8 @@ export function SettingsView() {
     const { name, value, type, checked } = e.target;
     setSettings(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: type === 'checkbox' ? checked : value,
+      ...(name === 'genaiProvider' ? getGenaiPreset(value, prev) : {})
     }));
   };
 

@@ -134,6 +134,8 @@ export default defineConfig({
         index: resolve(__dirname, 'index.html'),
         login: resolve(__dirname, 'login.html'),
         recordings: resolve(__dirname, 'recordings.html'),
+        events: resolve(__dirname, 'events.html'),
+        faces: resolve(__dirname, 'faces.html'),
         settings: resolve(__dirname, 'settings.html'),
         streams: resolve(__dirname, 'streams.html'),
         system: resolve(__dirname, 'system.html'),

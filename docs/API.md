@@ -850,6 +850,114 @@ GET /api/detection/models
 
 Returns available detection models.
 
+### Events
+
+#### List Detection Events
+
+```
+GET /api/events?stream=Front%20Door&label=person&status=active&limit=100
+```
+
+Returns higher-level detection events aggregated from frame-level detections.
+Query parameters are optional: `stream`, `label`, `status`, `start`, `end`, and
+`limit`. Event status is `active` while detections are still matching and
+`ended` after the active gap expires.
+
+#### Get Detection Event
+
+```
+GET /api/events/{id}
+```
+
+Returns one detection event by ID.
+
+#### List Event Enrichments
+
+```
+GET /api/events/{id}/enrichments
+```
+
+Returns enrichment records attached to an event, such as GenAI descriptions or
+face-recognition labels.
+
+#### Add Event Enrichment
+
+```
+POST /api/events/{id}/enrichments
+```
+
+Adds an enrichment record to an event. This endpoint requires admin access when
+web authentication is enabled.
+
+**Request body:**
+
+```json
+{
+  "type": "genai_description",
+  "provider": "external",
+  "status": "completed",
+  "score": 0.91,
+  "value": "Person walking near the driveway",
+  "json": {
+    "summary": "Person walking near the driveway"
+  }
+}
+```
+
+#### List Enrichment Jobs
+
+```
+GET /api/enrichment/jobs?status=queued&type=genai_description&limit=50
+```
+
+Returns queued enrichment jobs for external workers. This endpoint requires
+admin access when web authentication is enabled. Workers can read GenAI provider
+metadata from `GET /api/settings`, including `genai_provider`, `genai_api_url`,
+`genai_model`, and `genai_api_key_env`.
+
+#### Claim Enrichment Job
+
+```
+POST /api/enrichment/jobs/{id}/claim
+```
+
+Atomically marks a queued job as `running` and returns the job payload.
+
+#### Complete Enrichment Job
+
+```
+POST /api/enrichment/jobs/{id}/complete
+```
+
+Stores the worker result as an event enrichment and marks the job `completed`.
+
+```json
+{
+  "provider": "external",
+  "score": 0.91,
+  "value": "Person walking near the driveway",
+  "json": {
+    "summary": "Person walking near the driveway"
+  }
+}
+```
+
+#### Fail Or Retry Enrichment Job
+
+```
+POST /api/enrichment/jobs/{id}/fail
+```
+
+Marks the job `failed`, or requeues it when `retry_after_seconds` is greater
+than zero.
+
+```json
+{
+  "error": "worker timeout",
+  "retry_after_seconds": 60
+}
+```
+
 ### Motion Recording
 
 #### Test Motion Event

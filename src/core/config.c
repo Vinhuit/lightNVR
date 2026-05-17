@@ -51,6 +51,34 @@ static int safe_atoi(const char *str, int fallback) {
     return parsed;
 }
 
+static int parse_detection_threshold_percent(const char *str, int fallback) {
+    if (!str || !*str) return fallback;
+
+    char *end = NULL;
+    errno = 0;
+    double val = strtod(str, &end);
+    if (end == str) {
+        return fallback;
+    }
+
+    while (*end != '\0' && isspace((unsigned char)*end)) {
+        end++;
+    }
+
+    if (*end != '\0' || errno == ERANGE) {
+        return fallback;
+    }
+
+    if (val <= 1.0) {
+        val *= 100.0;
+    }
+
+    if (val < 0.0) val = 0.0;
+    if (val > 100.0) val = 100.0;
+
+    return (int)(val + 0.5);
+}
+
 // ============================================================================
 // Environment Variable Override Support
 // ============================================================================
@@ -338,8 +366,16 @@ void load_default_config(config_t *config) {
     safe_strcpy(config->models_path, "/var/lib/lightnvr/models", MAX_PATH_LENGTH, 0);
     
     // API detection settings
-    safe_strcpy(config->api_detection_url, "http://localhost:8000/detect", MAX_URL_LENGTH, 0);
+    safe_strcpy(config->api_detection_url, "http://localhost:9001/api/v1/detect", MAX_URL_LENGTH, 0);
     safe_strcpy(config->api_detection_backend, "onnx", 32, 0); // Default to ONNX backend
+    config->api_detection_filter_classes[0] = '\0';
+    config->genai_enabled = false;
+    config->genai_api_url[0] = '\0';
+    safe_strcpy(config->genai_provider, "external", sizeof(config->genai_provider), 0);
+    config->genai_model[0] = '\0';
+    safe_strcpy(config->genai_api_key_env, "OPENAI_API_KEY", sizeof(config->genai_api_key_env), 0);
+    config->face_recognition_enabled = false;
+    config->face_recognition_api_url[0] = '\0';
 
     // Global detection defaults
     config->default_detection_threshold = 50;  // 50% confidence threshold
@@ -671,11 +707,25 @@ static int config_ini_handler(void* user, const char* section, const char* name,
             safe_strcpy(config->api_detection_url, value, MAX_URL_LENGTH, 0);
         } else if (strcmp(name, "backend") == 0) {
             safe_strcpy(config->api_detection_backend, value, sizeof(config->api_detection_backend), 0);
-        } else if (strcmp(name, "detection_threshold") == 0) {
-            config->default_detection_threshold = safe_atoi(value, 0);
-            // Clamp to valid range
-            if (config->default_detection_threshold < 0) config->default_detection_threshold = 0;
-            if (config->default_detection_threshold > 100) config->default_detection_threshold = 100;
+        } else if (strcmp(name, "filter_classes") == 0) {
+            safe_strcpy(config->api_detection_filter_classes, value, sizeof(config->api_detection_filter_classes), 0);
+        } else if (strcmp(name, "confidence_threshold") == 0 || strcmp(name, "detection_threshold") == 0) {
+            config->default_detection_threshold =
+                parse_detection_threshold_percent(value, config->default_detection_threshold);
+        } else if (strcmp(name, "genai_enabled") == 0) {
+            config->genai_enabled = (strcasecmp(value, "true") == 0 || strcmp(value, "1") == 0);
+        } else if (strcmp(name, "genai_api_url") == 0) {
+            safe_strcpy(config->genai_api_url, value, sizeof(config->genai_api_url), 0);
+        } else if (strcmp(name, "genai_provider") == 0) {
+            safe_strcpy(config->genai_provider, value, sizeof(config->genai_provider), 0);
+        } else if (strcmp(name, "genai_model") == 0) {
+            safe_strcpy(config->genai_model, value, sizeof(config->genai_model), 0);
+        } else if (strcmp(name, "genai_api_key_env") == 0) {
+            safe_strcpy(config->genai_api_key_env, value, sizeof(config->genai_api_key_env), 0);
+        } else if (strcmp(name, "face_recognition_enabled") == 0) {
+            config->face_recognition_enabled = (strcasecmp(value, "true") == 0 || strcmp(value, "1") == 0);
+        } else if (strcmp(name, "face_recognition_api_url") == 0) {
+            safe_strcpy(config->face_recognition_api_url, value, sizeof(config->face_recognition_api_url), 0);
         } else if (strcmp(name, "pre_detection_buffer") == 0) {
             config->default_pre_detection_buffer = safe_atoi(value, 0);
             // Clamp to valid range
@@ -1600,7 +1650,16 @@ int save_config(const config_t *config, const char *path) {
     fprintf(file, "[api_detection]\n");
     fprintf(file, "url = %s\n", config->api_detection_url);
     fprintf(file, "backend = %s\n", config->api_detection_backend);
-    fprintf(file, "detection_threshold = %d  ; Default confidence threshold (0-100%%)\n", config->default_detection_threshold);
+    fprintf(file, "confidence_threshold = %.2f  ; Default confidence threshold (0.0-1.0)\n",
+            config->default_detection_threshold / 100.0);
+    fprintf(file, "filter_classes = %s\n", config->api_detection_filter_classes);
+    fprintf(file, "genai_enabled = %s\n", config->genai_enabled ? "true" : "false");
+    fprintf(file, "genai_api_url = %s\n", config->genai_api_url);
+    fprintf(file, "genai_provider = %s\n", config->genai_provider);
+    fprintf(file, "genai_model = %s\n", config->genai_model);
+    fprintf(file, "genai_api_key_env = %s\n", config->genai_api_key_env);
+    fprintf(file, "face_recognition_enabled = %s\n", config->face_recognition_enabled ? "true" : "false");
+    fprintf(file, "face_recognition_api_url = %s\n", config->face_recognition_api_url);
     fprintf(file, "pre_detection_buffer = %d\n", config->default_pre_detection_buffer);
     fprintf(file, "post_detection_buffer = %d\n", config->default_post_detection_buffer);
     fprintf(file, "buffer_strategy = %s\n\n", config->default_buffer_strategy);

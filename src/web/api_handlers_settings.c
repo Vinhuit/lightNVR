@@ -458,6 +458,14 @@ void handle_get_settings(const http_request_t *req, http_response_t *res) {
     // API detection settings
     cJSON_AddStringToObject(settings, "api_detection_url", g_config.api_detection_url);
     cJSON_AddStringToObject(settings, "api_detection_backend", g_config.api_detection_backend);
+    cJSON_AddStringToObject(settings, "api_detection_filter_classes", g_config.api_detection_filter_classes);
+    cJSON_AddBoolToObject(settings, "genai_enabled", g_config.genai_enabled);
+    cJSON_AddStringToObject(settings, "genai_api_url", g_config.genai_api_url);
+    cJSON_AddStringToObject(settings, "genai_provider", g_config.genai_provider);
+    cJSON_AddStringToObject(settings, "genai_model", g_config.genai_model);
+    cJSON_AddStringToObject(settings, "genai_api_key_env", g_config.genai_api_key_env);
+    cJSON_AddBoolToObject(settings, "face_recognition_enabled", g_config.face_recognition_enabled);
+    cJSON_AddStringToObject(settings, "face_recognition_api_url", g_config.face_recognition_api_url);
 
     // Detection defaults
     cJSON_AddNumberToObject(settings, "default_detection_threshold", g_config.default_detection_threshold);
@@ -1080,6 +1088,64 @@ void handle_post_settings(const http_request_t *req, http_response_t *res) {
         safe_strcpy(g_config.api_detection_backend, api_detection_backend->valuestring, sizeof(g_config.api_detection_backend), 0);
         settings_changed = true;
         log_info("Updated api_detection_backend: %s", g_config.api_detection_backend);
+    }
+
+    cJSON *api_detection_filter_classes = cJSON_GetObjectItem(settings, "api_detection_filter_classes");
+    if (api_detection_filter_classes && cJSON_IsString(api_detection_filter_classes)) {
+        safe_strcpy(g_config.api_detection_filter_classes,
+                    api_detection_filter_classes->valuestring,
+                    sizeof(g_config.api_detection_filter_classes),
+                    0);
+        settings_changed = true;
+        log_info("Updated api_detection_filter_classes: %s", g_config.api_detection_filter_classes);
+    }
+
+    cJSON *genai_enabled = cJSON_GetObjectItem(settings, "genai_enabled");
+    if (genai_enabled && cJSON_IsBool(genai_enabled)) {
+        g_config.genai_enabled = cJSON_IsTrue(genai_enabled);
+        settings_changed = true;
+    }
+
+    cJSON *genai_api_url = cJSON_GetObjectItem(settings, "genai_api_url");
+    if (genai_api_url && cJSON_IsString(genai_api_url)) {
+        safe_strcpy(g_config.genai_api_url, genai_api_url->valuestring, sizeof(g_config.genai_api_url), 0);
+        settings_changed = true;
+    }
+
+    cJSON *genai_provider = cJSON_GetObjectItem(settings, "genai_provider");
+    if (genai_provider && cJSON_IsString(genai_provider)) {
+        safe_strcpy(g_config.genai_provider, genai_provider->valuestring, sizeof(g_config.genai_provider), 0);
+        settings_changed = true;
+    }
+
+    cJSON *genai_model = cJSON_GetObjectItem(settings, "genai_model");
+    if (genai_model && cJSON_IsString(genai_model)) {
+        safe_strcpy(g_config.genai_model, genai_model->valuestring, sizeof(g_config.genai_model), 0);
+        settings_changed = true;
+    }
+
+    cJSON *genai_api_key_env = cJSON_GetObjectItem(settings, "genai_api_key_env");
+    if (genai_api_key_env && cJSON_IsString(genai_api_key_env)) {
+        safe_strcpy(g_config.genai_api_key_env,
+                    genai_api_key_env->valuestring,
+                    sizeof(g_config.genai_api_key_env),
+                    0);
+        settings_changed = true;
+    }
+
+    cJSON *face_recognition_enabled = cJSON_GetObjectItem(settings, "face_recognition_enabled");
+    if (face_recognition_enabled && cJSON_IsBool(face_recognition_enabled)) {
+        g_config.face_recognition_enabled = cJSON_IsTrue(face_recognition_enabled);
+        settings_changed = true;
+    }
+
+    cJSON *face_recognition_api_url = cJSON_GetObjectItem(settings, "face_recognition_api_url");
+    if (face_recognition_api_url && cJSON_IsString(face_recognition_api_url)) {
+        safe_strcpy(g_config.face_recognition_api_url,
+                    face_recognition_api_url->valuestring,
+                    sizeof(g_config.face_recognition_api_url),
+                    0);
+        settings_changed = true;
     }
 
     // go2rtc settings

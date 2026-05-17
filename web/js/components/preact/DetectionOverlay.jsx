@@ -8,6 +8,29 @@ import { formatFilenameTimestamp } from '../../utils/date-utils.js';
 
 import { forwardRef, useImperativeHandle } from 'preact/compat';
 
+const LIVE_DETECTION_DISPLAY_TTL_SECONDS = 4;
+const LIVE_DETECTION_BATCH_WINDOW_SECONDS = 1;
+
+function getFreshLiveDetections(rawDetections) {
+  if (!Array.isArray(rawDetections) || rawDetections.length === 0) {
+    return [];
+  }
+
+  const timestamped = rawDetections.filter(d => Number.isFinite(Number(d.timestamp)) && Number(d.timestamp) > 0);
+  if (timestamped.length === 0) {
+    return rawDetections;
+  }
+
+  const latestTimestamp = Math.max(...timestamped.map(d => Number(d.timestamp)));
+  if ((Date.now() / 1000 - latestTimestamp) > LIVE_DETECTION_DISPLAY_TTL_SECONDS) {
+    return [];
+  }
+
+  return timestamped.filter(d =>
+    Math.abs(Number(d.timestamp) - latestTimestamp) <= LIVE_DETECTION_BATCH_WINDOW_SECONDS
+  );
+}
+
 /**
  * DetectionOverlay component
  * @param {Object} props - Component props
@@ -34,7 +57,7 @@ export const DetectionOverlay = forwardRef(({
   // Expose the canvas ref to parent components
   useImperativeHandle(ref, () => ({
     getCanvasRef: () => canvasRef,
-    getDetections: () => detections
+    getDetections: () => getFreshLiveDetections(detections)
   }));
 
   // Fetch detection zones for this stream
@@ -127,9 +150,13 @@ export const DetectionOverlay = forwardRef(({
       }
     });
 
-    // Draw each detection
-    if (detections && detections.length > 0) {
-      detections.forEach(detection => {
+    const visibleDetections = getFreshLiveDetections(detections);
+
+    // Draw each detection from the newest fresh detector batch only. The API
+    // returns a wider window for recording/event logic; live video should not
+    // paint old snapshot results over later frames.
+    if (visibleDetections.length > 0) {
+      visibleDetections.forEach(detection => {
         const x = (detection.x * drawWidth) + offsetX;
         const y = (detection.y * drawHeight) + offsetY;
         const width = detection.width * drawWidth;

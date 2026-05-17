@@ -238,12 +238,15 @@ export function Header({ version = VERSION }) {
   const isAdmin = userRole === null || userRole === 'admin';
   const canEditCurrentUser = authEnabled && !demoMode && Boolean(currentUser?.id);
   const displayUsername = username || (demoMode ? t('auth.demoViewer') : t('auth.user'));
+  const eventsLabel = t('nav.events') === 'nav.events' ? 'Events' : t('nav.events');
 
   // Navigation items - don't preserve query parameters when navigating via header
   // Admin-only tabs (System, Users) are hidden from non-admin roles.
   const navItems = [
     { id: 'nav-live', href: getLiveViewHref(), label: t('nav.live') },
     { id: 'nav-recordings', href: 'recordings.html', label: t('nav.recordings') },
+    { id: 'nav-events', href: 'events.html', label: eventsLabel },
+    { id: 'nav-faces', href: 'faces.html', label: 'Faces' },
     { id: 'nav-streams', href: 'streams.html', label: t('nav.streams') },
     { id: 'nav-settings', href: 'settings.html', label: t('nav.settings') },
     ...(isAdmin ? [{ id: 'nav-users', href: 'users.html', label: t('nav.users') }] : []),

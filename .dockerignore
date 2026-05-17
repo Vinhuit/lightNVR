@@ -1,0 +1,17 @@
+.git
+.github
+.devcontainer
+build
+cmake-build-*
+node_modules
+web/node_modules
+web/dist
+data
+data;C
+config;C
+config/
+.env
+*.log
+*.tmp
+playwright-report
+test-results

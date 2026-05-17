@@ -20,6 +20,20 @@ const HIDEABLE_ELEMENTS = [
   { key: 'actions', labelKey: 'common.actions' },
 ];
 
+function getThumbnailVersion(recording) {
+  return [
+    recording.start_time_unix ?? recording.start_time ?? '',
+    recording.end_time_unix ?? recording.end_time ?? '',
+    recording.size_bytes ?? recording.size ?? '',
+    recording.updated_at ?? ''
+  ].join('-');
+}
+
+function buildThumbnailUrl(recording, frame) {
+  const version = getThumbnailVersion(recording);
+  return `/api/recordings/thumbnail/${recording.id}/${frame}?v=${encodeURIComponent(version)}`;
+}
+
 /**
  * Settings cog dropdown for grid cards – mirrors ColumnConfigDropdown from RecordingsTable
  */
@@ -118,13 +132,13 @@ function RecordingCard({
 
   /** Load (or reload) the mount-time (first-frame) thumbnail. */
   const loadThumbnail = useCallback(() => {
-    const url = `/api/recordings/thumbnail/${recording.id}/0`;
+    const url = buildThumbnailUrl(recording, 0);
     setLoadState('loading');
     imgErrorCountRef.current = 0;
     queueThumbnailLoad(url, Priority.HIGH)
       .then(() => setLoadState('loaded'))
       .catch(() => setLoadState('error'));
-  }, [recording.id]);
+  }, [recording]);
 
   // Handle <img> element load errors — if the decoded image was evicted
   // from the browser cache between queueThumbnailLoad success and render,
@@ -167,7 +181,7 @@ function RecordingCard({
     if (isHovering && !preloadedRef.current) {
       preloadedRef.current = true;
       const promises = [1, 2].map(i => {
-        const url = `/api/recordings/thumbnail/${recording.id}/${i}`;
+        const url = buildThumbnailUrl(recording, i);
         return queueThumbnailLoad(url, Priority.LOW);
       });
       Promise.all(promises)
@@ -177,7 +191,7 @@ function RecordingCard({
           setFramesReady(true);
         });
     }
-  }, [isHovering, recording.id, hoverFramesEnabled]);
+  }, [isHovering, recording, hoverFramesEnabled]);
 
   // Reset framesReady when no longer hovering
   // (preloadedRef stays true so we don't re-fetch on next hover)
@@ -204,7 +218,7 @@ function RecordingCard({
     };
   }, [isHovering, framesReady, hoverFramesEnabled]);
 
-  const thumbnailUrl = `/api/recordings/thumbnail/${recording.id}/${currentFrame}`;
+  const thumbnailUrl = buildThumbnailUrl(recording, currentFrame);
   const isSelected = !!selectedRecordings[recording.id];
   const show = (key) => !hiddenColumns[key];
 
@@ -611,4 +625,3 @@ export function RecordingsGrid({
     </div>
   );
 }
-

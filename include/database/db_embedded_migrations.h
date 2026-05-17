@@ -630,6 +630,123 @@ static const char migration_0040_up[] =
 static const char migration_0040_down[] =
     "SELECT 1;";
 
+static const char migration_0041_up[] =
+    "CREATE TABLE IF NOT EXISTS detection_events (\n"
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    "    stream_name TEXT NOT NULL,\n"
+    "    label TEXT NOT NULL,\n"
+    "    sub_label TEXT DEFAULT '',\n"
+    "    recognized_text TEXT DEFAULT '',\n"
+    "    start_time INTEGER NOT NULL,\n"
+    "    end_time INTEGER,\n"
+    "    best_time INTEGER,\n"
+    "    best_confidence REAL DEFAULT 0.0,\n"
+    "    best_detection_id INTEGER,\n"
+    "    recording_id INTEGER,\n"
+    "    track_id INTEGER DEFAULT -1,\n"
+    "    zone_id TEXT DEFAULT '',\n"
+    "    thumbnail_path TEXT DEFAULT '',\n"
+    "    status TEXT DEFAULT 'active',\n"
+    "    created_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    updated_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    FOREIGN KEY (recording_id) REFERENCES recordings(id),\n"
+    "    FOREIGN KEY (best_detection_id) REFERENCES detections(id)\n"
+    ");\n"
+    "CREATE INDEX IF NOT EXISTS idx_detection_events_stream_time\n"
+    "    ON detection_events(stream_name, start_time, end_time);\n"
+    "CREATE INDEX IF NOT EXISTS idx_detection_events_label\n"
+    "    ON detection_events(label);\n"
+    "CREATE INDEX IF NOT EXISTS idx_detection_events_sub_label\n"
+    "    ON detection_events(sub_label);\n"
+    "CREATE INDEX IF NOT EXISTS idx_detection_events_recording\n"
+    "    ON detection_events(recording_id);\n"
+    "CREATE INDEX IF NOT EXISTS idx_detection_events_status\n"
+    "    ON detection_events(status);\n"
+    "CREATE TABLE IF NOT EXISTS event_enrichments (\n"
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    "    event_id INTEGER NOT NULL,\n"
+    "    type TEXT NOT NULL,\n"
+    "    provider TEXT NOT NULL,\n"
+    "    status TEXT NOT NULL DEFAULT 'pending',\n"
+    "    score REAL DEFAULT 0.0,\n"
+    "    value TEXT DEFAULT '',\n"
+    "    json TEXT DEFAULT '',\n"
+    "    error TEXT DEFAULT '',\n"
+    "    created_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    updated_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    FOREIGN KEY (event_id) REFERENCES detection_events(id) ON DELETE CASCADE\n"
+    ");\n"
+    "CREATE INDEX IF NOT EXISTS idx_event_enrichments_event_type\n"
+    "    ON event_enrichments(event_id, type);\n"
+    "CREATE TABLE IF NOT EXISTS enrichment_jobs (\n"
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    "    event_id INTEGER NOT NULL,\n"
+    "    type TEXT NOT NULL,\n"
+    "    status TEXT NOT NULL DEFAULT 'queued',\n"
+    "    attempts INTEGER DEFAULT 0,\n"
+    "    next_attempt_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    payload_json TEXT DEFAULT '',\n"
+    "    result_json TEXT DEFAULT '',\n"
+    "    error TEXT DEFAULT '',\n"
+    "    created_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    updated_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    FOREIGN KEY (event_id) REFERENCES detection_events(id) ON DELETE CASCADE\n"
+    ");\n"
+    "CREATE INDEX IF NOT EXISTS idx_enrichment_jobs_status_next\n"
+    "    ON enrichment_jobs(status, next_attempt_at);\n"
+    "CREATE INDEX IF NOT EXISTS idx_enrichment_jobs_event_type\n"
+    "    ON enrichment_jobs(event_id, type);\n"
+    "CREATE TABLE IF NOT EXISTS known_faces (\n"
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    "    name TEXT NOT NULL,\n"
+    "    image_path TEXT NOT NULL,\n"
+    "    embedding_ref TEXT DEFAULT '',\n"
+    "    created_at INTEGER DEFAULT (strftime('%s', 'now'))\n"
+    ");\n"
+    "CREATE INDEX IF NOT EXISTS idx_known_faces_name ON known_faces(name);";
+
+static const char migration_0041_down[] =
+    "DROP INDEX IF EXISTS idx_known_faces_name;\n"
+    "DROP TABLE IF EXISTS known_faces;\n"
+    "DROP INDEX IF EXISTS idx_enrichment_jobs_event_type;\n"
+    "DROP INDEX IF EXISTS idx_enrichment_jobs_status_next;\n"
+    "DROP TABLE IF EXISTS enrichment_jobs;\n"
+    "DROP INDEX IF EXISTS idx_event_enrichments_event_type;\n"
+    "DROP TABLE IF EXISTS event_enrichments;\n"
+    "DROP INDEX IF EXISTS idx_detection_events_status;\n"
+    "DROP INDEX IF EXISTS idx_detection_events_recording;\n"
+    "DROP INDEX IF EXISTS idx_detection_events_sub_label;\n"
+    "DROP INDEX IF EXISTS idx_detection_events_label;\n"
+    "DROP INDEX IF EXISTS idx_detection_events_stream_time;\n"
+    "DROP TABLE IF EXISTS detection_events;";
+
+static const char migration_0042_up[] =
+    "CREATE TABLE IF NOT EXISTS event_face_crops (\n"
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    "    event_id INTEGER NOT NULL,\n"
+    "    crop_path TEXT NOT NULL,\n"
+    "    bbox_x REAL DEFAULT 0.0,\n"
+    "    bbox_y REAL DEFAULT 0.0,\n"
+    "    bbox_w REAL DEFAULT 0.0,\n"
+    "    bbox_h REAL DEFAULT 0.0,\n"
+    "    confidence REAL DEFAULT 0.0,\n"
+    "    name TEXT DEFAULT '',\n"
+    "    status TEXT DEFAULT 'unknown',\n"
+    "    source TEXT DEFAULT 'light-object-detect',\n"
+    "    created_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    updated_at INTEGER DEFAULT (strftime('%s', 'now')),\n"
+    "    FOREIGN KEY (event_id) REFERENCES detection_events(id) ON DELETE CASCADE\n"
+    ");\n"
+    "CREATE INDEX IF NOT EXISTS idx_event_face_crops_event\n"
+    "    ON event_face_crops(event_id);\n"
+    "CREATE INDEX IF NOT EXISTS idx_event_face_crops_status\n"
+    "    ON event_face_crops(status, created_at);";
+
+static const char migration_0042_down[] =
+    "DROP INDEX IF EXISTS idx_event_face_crops_status;\n"
+    "DROP INDEX IF EXISTS idx_event_face_crops_event;\n"
+    "DROP TABLE IF EXISTS event_face_crops;";
+
 static const migration_t embedded_migrations_data[] = {
     {
         .version = "0001",
@@ -911,8 +1028,22 @@ static const migration_t embedded_migrations_data[] = {
         .sql_down = migration_0040_down,
         .is_embedded = true
     },
+    {
+        .version = "0041",
+        .description = "add_detection_events_and_enrichments",
+        .sql_up = migration_0041_up,
+        .sql_down = migration_0041_down,
+        .is_embedded = true
+    },
+    {
+        .version = "0042",
+        .description = "add_event_face_crops",
+        .sql_up = migration_0042_up,
+        .sql_down = migration_0042_down,
+        .is_embedded = true
+    },
 };
 
-#define EMBEDDED_MIGRATIONS_COUNT 40
+#define EMBEDDED_MIGRATIONS_COUNT 42
 
 #endif /* DB_EMBEDDED_MIGRATIONS_H */
