@@ -42,6 +42,22 @@ function normalizeEvents(response) {
   return Array.isArray(response?.events) ? response.events : [];
 }
 
+function normalizeStreams(response) {
+  if (!Array.isArray(response)) return [];
+  return response
+    .map((stream) => stream?.name || stream?.id || '')
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeLabels(response) {
+  const labels = Array.isArray(response?.labels) ? response.labels : [];
+  return labels
+    .map((item) => (typeof item === 'string' ? item : item?.label))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 function hasEventSnapshot(event) {
   return Boolean(event?.snapshot_url || event?.thumbnail_path);
 }
@@ -126,6 +142,18 @@ export function EventsView() {
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const [expandedEventId, setExpandedEventId] = useState(null);
 
+  const { data: streamsData } = useQuery(
+    ['events-streams'],
+    '/api/streams',
+    { timeout: 10000, retries: 1 }
+  );
+
+  const { data: labelsData } = useQuery(
+    ['events-detection-labels'],
+    '/api/recordings/detection-labels',
+    { timeout: 10000, retries: 1 }
+  );
+
   const queryString = useMemo(() => buildQueryString(appliedFilters), [appliedFilters]);
   const {
     data,
@@ -140,6 +168,13 @@ export function EventsView() {
   );
 
   const events = normalizeEvents(data);
+  const streamOptions = useMemo(() => normalizeStreams(streamsData), [streamsData]);
+  const labelOptions = useMemo(() => {
+    const fromApi = normalizeLabels(labelsData);
+    const fromEvents = events.map((event) => event.label).filter(Boolean);
+    return Array.from(new Set([...fromApi, ...fromEvents]))
+      .sort((a, b) => a.localeCompare(b));
+  }, [labelsData, events]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
@@ -182,23 +217,31 @@ export function EventsView() {
       >
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium">Stream</span>
-          <input
+          <select
             name="stream"
-            className="input input-bordered w-full"
+            className="select select-bordered w-full"
             value={filters.stream}
-            onInput={handleFilterChange}
-            placeholder="front-door"
-          />
+            onChange={handleFilterChange}
+          >
+            <option value="">All streams</option>
+            {streamOptions.map((stream) => (
+              <option key={stream} value={stream}>{stream}</option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium">Object</span>
-          <input
+          <select
             name="label"
-            className="input input-bordered w-full"
+            className="select select-bordered w-full"
             value={filters.label}
-            onInput={handleFilterChange}
-            placeholder="person"
-          />
+            onChange={handleFilterChange}
+          >
+            <option value="">All objects</option>
+            {labelOptions.map((label) => (
+              <option key={label} value={label}>{label}</option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium">Status</span>
