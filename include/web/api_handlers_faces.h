@@ -40,6 +40,12 @@ void handle_get_faces_unknown_crops(const http_request_t *req, http_response_t *
 void handle_get_face_crop_image(const http_request_t *req, http_response_t *res);
 
 /**
+ * GET /api/faces/{id}/image
+ * Proxies a trained face library thumbnail from the external API.
+ */
+void handle_get_face_image(const http_request_t *req, http_response_t *res);
+
+/**
  * POST /api/faces/train-crop
  * Trains a face from an existing face crop with JSON { crop_id, name }.
  */

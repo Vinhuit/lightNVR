@@ -26,6 +26,10 @@ typedef struct {
     size_t capacity;
 } face_buf_t;
 
+typedef struct {
+    char content_type[128];
+} face_header_ctx_t;
+
 static size_t face_write_cb(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t bytes    = size * nmemb;
     face_buf_t *buf = (face_buf_t *)userp;
@@ -39,6 +43,30 @@ static size_t face_write_cb(void *contents, size_t size, size_t nmemb, void *use
     memcpy(buf->data + buf->size, contents, bytes);
     buf->size += bytes;
     buf->data[buf->size] = '\0';
+    return bytes;
+}
+
+static size_t face_header_cb(char *buffer, size_t size, size_t nitems, void *userp) {
+    size_t bytes = size * nitems;
+    face_header_ctx_t *ctx = (face_header_ctx_t *)userp;
+
+    if (bytes > 14 &&
+        (strncmp(buffer, "Content-Type:", 13) == 0 ||
+         strncmp(buffer, "content-type:", 13) == 0)) {
+        const char *val = buffer + 13;
+        while (*val == ' ' || *val == '\t') val++;
+
+        size_t len = bytes - (size_t)(val - buffer);
+        while (len > 0 && (val[len - 1] == '\r' || val[len - 1] == '\n')) {
+            len--;
+        }
+        if (len >= sizeof(ctx->content_type)) {
+            len = sizeof(ctx->content_type) - 1;
+        }
+        memcpy(ctx->content_type, val, len);
+        ctx->content_type[len] = '\0';
+    }
+
     return bytes;
 }
 
@@ -293,8 +321,114 @@ void handle_get_faces_list(const http_request_t *req, http_response_t *res) {
         return;
     }
 
+    if (http_code >= 200 && http_code < 300 && chunk.data[0]) {
+        cJSON *root = cJSON_Parse(chunk.data);
+        cJSON *faces = root ? cJSON_GetObjectItem(root, "faces") : NULL;
+        if (cJSON_IsArray(faces)) {
+            cJSON *face = NULL;
+            cJSON_ArrayForEach(face, faces) {
+                cJSON *id = cJSON_GetObjectItem(face, "id");
+                cJSON *thumbnail = cJSON_GetObjectItem(face, "thumbnail_url");
+                if (cJSON_IsNumber(id) && cJSON_IsString(thumbnail) &&
+                    thumbnail->valuestring && thumbnail->valuestring[0]) {
+                    char local_url[96];
+                    snprintf(local_url, sizeof(local_url), "/api/faces/%lld/image",
+                             (long long)id->valuedouble);
+                    cJSON_SetValuestring(thumbnail, local_url);
+                }
+            }
+
+            char *json = cJSON_PrintUnformatted(root);
+            http_response_set_json(res, (int)http_code, json ? json : chunk.data);
+            free(json);
+            cJSON_Delete(root);
+            free(chunk.data);
+            return;
+        }
+        if (root) {
+            cJSON_Delete(root);
+        }
+    }
+
     http_response_set_json(res, (int)http_code, chunk.data[0] ? chunk.data : "{\"faces\":[]}");
     free(chunk.data);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * GET /api/faces/{id}/image  →  GET {base}/{id}/image
+ * Proxies a stored training sample image from light-object-detect.
+ * ────────────────────────────────────────────────────────────────────────── */
+void handle_get_face_image(const http_request_t *req, http_response_t *res) {
+    if (!require_viewer(req, res)) return;
+
+    if (!g_config.face_recognition_api_url[0]) {
+        http_response_set_json_error(res, 503, "Face recognition API URL is not configured");
+        return;
+    }
+
+    char id_buf[64] = {0};
+    if (http_request_extract_path_param(req, "/api/faces/", id_buf, sizeof(id_buf)) != 0 ||
+        id_buf[0] == '\0') {
+        http_response_set_json_error(res, 400, "Missing face ID");
+        return;
+    }
+    char *suffix = strstr(id_buf, "/image");
+    if (suffix) *suffix = '\0';
+    if (id_buf[0] == '\0') {
+        http_response_set_json_error(res, 400, "Invalid face ID");
+        return;
+    }
+
+    char sub_path[96];
+    snprintf(sub_path, sizeof(sub_path), "%s/image", id_buf);
+
+    char upstream[1024];
+    if (build_upstream_url(sub_path, upstream, sizeof(upstream)) != 0) {
+        http_response_set_json_error(res, 500, "Failed to build upstream URL");
+        return;
+    }
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        http_response_set_json_error(res, 500, "CURL init failed");
+        return;
+    }
+
+    face_buf_t chunk = { .data = malloc(4096), .size = 0, .capacity = 4096 };
+    if (!chunk.data) {
+        curl_easy_cleanup(curl);
+        http_response_set_json_error(res, 500, "Out of memory");
+        return;
+    }
+    chunk.data[0] = '\0';
+    face_header_ctx_t header_ctx = {0};
+
+    curl_easy_setopt(curl, CURLOPT_URL, upstream);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, face_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &chunk);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, face_header_cb);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &header_ctx);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+
+    CURLcode rc = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_cleanup(curl);
+
+    if (rc != CURLE_OK) {
+        free(chunk.data);
+        http_response_set_json_error(res, 502, curl_easy_strerror(rc));
+        return;
+    }
+
+    res->status_code = (int)http_code;
+    snprintf(res->content_type, sizeof(res->content_type), "%s",
+             header_ctx.content_type[0] ? header_ctx.content_type : "image/jpeg");
+    http_response_add_header(res, "Cache-Control", "public, max-age=86400");
+    http_response_add_cors_headers(res);
+    res->body = chunk.data;
+    res->body_length = chunk.size;
+    res->body_allocated = true;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

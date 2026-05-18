@@ -155,6 +155,7 @@ int register_all_libuv_handlers(http_server_handle_t server) {
     http_server_register_handler(server, "/api/faces/list", "GET", handle_get_faces_list);
     http_server_register_handler(server, "/api/faces/unknown-crops", "GET", handle_get_faces_unknown_crops);
     http_server_register_handler(server, "/api/faces/crops/#/image", "GET", handle_get_face_crop_image);
+    http_server_register_handler(server, "/api/faces/#/image", "GET", handle_get_face_image);
     http_server_register_handler(server, "/api/faces/train-crop", "POST", handle_post_faces_train_crop);
     http_server_register_handler(server, "/api/faces/train-event", "POST", handle_post_faces_train_event);
     http_server_register_handler(server, "/api/faces/train", "POST", handle_post_faces_train);
