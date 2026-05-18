@@ -35,6 +35,21 @@ function readFileAsDataURL(file) {
   });
 }
 
+function formatFaceDate(value) {
+  if (!value) return '';
+  const normalized = typeof value === 'string' && value.includes(' ')
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DragDrop upload zone
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,6 +527,7 @@ function FaceCard({ face, onDelete }) {
 
   // Use initials as placeholder avatar
   const initials = (face.name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  const trainedDate = formatFaceDate(face.last_trained_at || face.first_trained_at);
 
   return (
     <div className="group relative bg-card rounded-2xl border border-border shadow-sm overflow-hidden flex flex-col transition-shadow hover:shadow-md">
@@ -531,8 +547,11 @@ function FaceCard({ face, onDelete }) {
       {/* Info area */}
       <div className="p-3 flex flex-col gap-1 flex-1">
         <div className="font-semibold truncate">{face.name}</div>
-        <div className="text-xs text-muted-foreground">
-          {face.sample_count != null ? `${face.sample_count} sample${face.sample_count !== 1 ? 's' : ''}` : 'Trained'}
+        <div className="text-xs text-muted-foreground leading-snug">
+          <div>
+            {face.sample_count != null ? `${face.sample_count} sample${face.sample_count !== 1 ? 's' : ''}` : 'Trained'}
+          </div>
+          {trainedDate && <div>Latest: {trainedDate}</div>}
         </div>
       </div>
 
