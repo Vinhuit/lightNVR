@@ -218,6 +218,13 @@ function buildQueryString(filters) {
   return params.toString();
 }
 
+function getInitialFocusedEventId() {
+  if (typeof window === 'undefined') return null;
+  const raw = new URLSearchParams(window.location.search).get('event');
+  const numeric = Number(raw);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
 function EventEnrichments({ eventId }) {
   const { t } = useI18n();
   const { data, isLoading, error } = useQuery(
@@ -275,9 +282,10 @@ function EventEnrichments({ eventId }) {
 
 export function EventsView() {
   const { t } = useI18n();
+  const [focusedEventId, setFocusedEventId] = useState(getInitialFocusedEventId);
   const [filters, setFilters] = useState({ stream: '', label: '', status: 'all' });
   const [appliedFilters, setAppliedFilters] = useState(filters);
-  const [expandedEventId, setExpandedEventId] = useState(null);
+  const [expandedEventId, setExpandedEventId] = useState(() => getInitialFocusedEventId());
   const [snapshotModalEvent, setSnapshotModalEvent] = useState(null);
 
   const { data: streamsData } = useQuery(
@@ -302,22 +310,44 @@ export function EventsView() {
   } = useQuery(
     ['events', queryString],
     `/api/events?${queryString}`,
-    { timeout: 10000, retries: 1 }
+    { timeout: 10000, retries: 1 },
+    { enabled: !focusedEventId }
   );
 
-  const events = normalizeEvents(data);
+  const {
+    data: focusedEventData,
+    isLoading: focusedEventLoading,
+    error: focusedEventError,
+    refetch: refetchFocusedEvent,
+    isFetching: focusedEventFetching
+  } = useQuery(
+    ['event', focusedEventId],
+    focusedEventId ? `/api/events/${focusedEventId}` : null,
+    { timeout: 10000, retries: 1 },
+    { enabled: Boolean(focusedEventId) }
+  );
+
+  const listedEvents = normalizeEvents(data);
+  const focusedEvent = focusedEventData && !Array.isArray(focusedEventData?.events)
+    ? focusedEventData
+    : null;
+  const events = focusedEvent ? [focusedEvent] : listedEvents;
+  const currentLoading = focusedEventId ? focusedEventLoading : isLoading;
+  const currentError = focusedEventId ? focusedEventError : error;
+  const currentFetching = focusedEventId ? focusedEventFetching : isFetching;
+
   const streamOptions = useMemo(() => {
     const fromApi = normalizeStreams(streamsData);
-    const fromEvents = events.map((event) => event.stream_name).filter(Boolean);
+    const fromEvents = [...listedEvents, ...events].map((event) => event.stream_name).filter(Boolean);
     return Array.from(new Set([...fromApi, ...fromEvents]))
       .sort((a, b) => a.localeCompare(b));
-  }, [streamsData, events]);
+  }, [streamsData, listedEvents, events]);
   const labelOptions = useMemo(() => {
     const fromApi = normalizeLabels(labelsData);
-    const fromEvents = events.map((event) => event.label).filter(Boolean);
+    const fromEvents = [...listedEvents, ...events].map((event) => event.label).filter(Boolean);
     return Array.from(new Set([...fromApi, ...fromEvents]))
       .sort((a, b) => a.localeCompare(b));
-  }, [labelsData, events]);
+  }, [labelsData, listedEvents, events]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
@@ -335,6 +365,16 @@ export function EventsView() {
     setAppliedFilters(nextFilters);
   };
 
+  const showAllEvents = () => {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('event');
+      window.history.replaceState({}, '', url.toString());
+    }
+    setFocusedEventId(null);
+    setExpandedEventId(null);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -347,77 +387,91 @@ export function EventsView() {
         <button
           type="button"
           className="btn-secondary self-start md:self-auto"
-          onClick={() => refetch()}
-          disabled={isFetching}
+          onClick={() => focusedEventId ? refetchFocusedEvent() : refetch()}
+          disabled={currentFetching}
         >
-          {isFetching ? t('common.loading') : t('common.refresh')}
+          {currentFetching ? t('common.loading') : t('common.refresh')}
         </button>
       </div>
 
-      <form
-        className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end rounded-lg border border-border bg-card p-4"
-        onSubmit={applyFilters}
-      >
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Stream</span>
-          <input
-            name="stream"
-            list="events-stream-options"
-            className="input input-bordered w-full"
-            value={filters.stream}
-            onInput={handleFilterChange}
-            placeholder="All streams"
-            autoComplete="off"
-          />
-          <datalist id="events-stream-options">
-            {streamOptions.map((stream) => (
-              <option key={stream} value={stream}>{stream}</option>
-            ))}
-          </datalist>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Object</span>
-          <input
-            name="label"
-            list="events-object-options"
-            className="input input-bordered w-full"
-            value={filters.label}
-            onInput={handleFilterChange}
-            placeholder="All objects"
-            autoComplete="off"
-          />
-          <datalist id="events-object-options">
-            {labelOptions.map((label) => (
-              <option key={label} value={label}>{label}</option>
-            ))}
-          </datalist>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Status</span>
-          <select
-            name="status"
-            className="select select-bordered w-full min-w-32"
-            value={filters.status}
-            onChange={handleFilterChange}
-          >
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="ended">Ended</option>
-          </select>
-        </label>
-        <div className="flex gap-2">
-          <button type="submit" className="btn-primary">Apply</button>
-          <button type="button" className="btn-secondary" onClick={resetFilters}>Reset</button>
-        </div>
-      </form>
-
-      {error && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          Failed to load events: {error.message}
+      {focusedEventId && (
+        <div className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm">
+            <div className="font-medium">Showing event #{focusedEventId}</div>
+            <div className="text-muted-foreground">Opened from the face review panel.</div>
+          </div>
+          <button type="button" className="btn-secondary self-start sm:self-auto" onClick={showAllEvents}>
+            Show all events
+          </button>
         </div>
       )}
 
-      {isLoading ? (
+      {!focusedEventId && (
+        <form
+          className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-3 items-end rounded-lg border border-border bg-card p-4"
+          onSubmit={applyFilters}
+        >
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Stream</span>
+            <input
+              name="stream"
+              list="events-stream-options"
+              className="input input-bordered w-full"
+              value={filters.stream}
+              onInput={handleFilterChange}
+              placeholder="All streams"
+              autoComplete="off"
+            />
+            <datalist id="events-stream-options">
+              {streamOptions.map((stream) => (
+                <option key={stream} value={stream}>{stream}</option>
+              ))}
+            </datalist>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Object</span>
+            <input
+              name="label"
+              list="events-object-options"
+              className="input input-bordered w-full"
+              value={filters.label}
+              onInput={handleFilterChange}
+              placeholder="All objects"
+              autoComplete="off"
+            />
+            <datalist id="events-object-options">
+              {labelOptions.map((label) => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </datalist>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Status</span>
+            <select
+              name="status"
+              className="select select-bordered w-full min-w-32"
+              value={filters.status}
+              onChange={handleFilterChange}
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="ended">Ended</option>
+            </select>
+          </label>
+          <div className="flex gap-2">
+            <button type="submit" className="btn-primary">Apply</button>
+            <button type="button" className="btn-secondary" onClick={resetFilters}>Reset</button>
+          </div>
+        </form>
+      )}
+
+      {currentError && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+          Failed to load {focusedEventId ? `event #${focusedEventId}` : 'events'}: {currentError.message}
+        </div>
+      )}
+
+      {currentLoading ? (
         <div className="text-center py-8 text-muted-foreground">{t('common.loadingData')}</div>
       ) : events.length === 0 ? (
         <div className="rounded-lg border border-border bg-card p-6 text-center text-muted-foreground">
