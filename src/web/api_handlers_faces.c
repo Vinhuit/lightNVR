@@ -258,6 +258,111 @@ static int train_face_bytes(const char *name,
     return 0;
 }
 
+static int train_face_event_box(const char *name,
+                                const detection_event_t *event,
+                                const event_face_crop_t *crop,
+                                long *http_code_out,
+                                char **response_out) {
+    if (!name || !event || !crop || !http_code_out || !response_out) {
+        return -1;
+    }
+    if (!is_safe_relative_snapshot_path(event->thumbnail_path)) {
+        return -1;
+    }
+
+    char snapshot_path[MAX_PATH_LENGTH];
+    snprintf(snapshot_path, sizeof(snapshot_path), "%s/%s",
+             g_config.storage_path, event->thumbnail_path);
+
+    unsigned char *jpeg_data = NULL;
+    size_t jpeg_size = 0;
+    if (read_file_bytes(snapshot_path, &jpeg_data, &jpeg_size) != 0) {
+        return -1;
+    }
+
+    char upstream[1024];
+    if (build_upstream_url("train-box", upstream, sizeof(upstream)) != 0) {
+        free(jpeg_data);
+        return -1;
+    }
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        free(jpeg_data);
+        return -1;
+    }
+
+    curl_mime *mime = curl_mime_init(curl);
+    curl_mimepart *part = curl_mime_addpart(mime);
+    curl_mime_name(part, "name");
+    curl_mime_data(part, name, CURL_ZERO_TERMINATED);
+
+    char field[64];
+    snprintf(field, sizeof(field), "%.9f", crop->bbox_x);
+    part = curl_mime_addpart(mime);
+    curl_mime_name(part, "bbox_x");
+    curl_mime_data(part, field, CURL_ZERO_TERMINATED);
+
+    snprintf(field, sizeof(field), "%.9f", crop->bbox_y);
+    part = curl_mime_addpart(mime);
+    curl_mime_name(part, "bbox_y");
+    curl_mime_data(part, field, CURL_ZERO_TERMINATED);
+
+    snprintf(field, sizeof(field), "%.9f", crop->bbox_w);
+    part = curl_mime_addpart(mime);
+    curl_mime_name(part, "bbox_w");
+    curl_mime_data(part, field, CURL_ZERO_TERMINATED);
+
+    snprintf(field, sizeof(field), "%.9f", crop->bbox_h);
+    part = curl_mime_addpart(mime);
+    curl_mime_name(part, "bbox_h");
+    curl_mime_data(part, field, CURL_ZERO_TERMINATED);
+
+    part = curl_mime_addpart(mime);
+    curl_mime_name(part, "file");
+    curl_mime_filename(part, "event-snapshot.jpg");
+    curl_mime_type(part, "image/jpeg");
+    curl_mime_data(part, (const char *)jpeg_data, jpeg_size);
+
+    face_buf_t chunk = { .data = malloc(4096), .size = 0, .capacity = 4096 };
+    if (!chunk.data) {
+        curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        free(jpeg_data);
+        return -1;
+    }
+    chunk.data[0] = '\0';
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Accept: application/json");
+
+    curl_easy_setopt(curl, CURLOPT_URL, upstream);
+    curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, face_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &chunk);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+    CURLcode rc = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+    curl_slist_free_all(headers);
+    curl_mime_free(mime);
+    curl_easy_cleanup(curl);
+    free(jpeg_data);
+
+    if (rc != CURLE_OK) {
+        free(chunk.data);
+        *http_code_out = http_code;
+        return -1;
+    }
+
+    *http_code_out = http_code;
+    *response_out = chunk.data;
+    return 0;
+}
+
 static bool upstream_train_success(long http_code, const char *response_json) {
     bool ok = http_code >= 200 && http_code < 300;
     if (ok && response_json && response_json[0]) {
@@ -787,6 +892,32 @@ void handle_post_faces_train_crop(const http_request_t *req, http_response_t *re
     }
 
     bool train_ok = upstream_train_success(http_code, upstream_response);
+    bool used_event_box = false;
+
+    if (!train_ok) {
+        detection_event_t event;
+        if (db_detection_event_get(crop.event_id, &event) == 0 &&
+            event.thumbnail_path[0]) {
+            long fallback_http_code = 0;
+            char *fallback_response = NULL;
+            if (train_face_event_box(name, &event, &crop,
+                                     &fallback_http_code,
+                                     &fallback_response) == 0) {
+                bool fallback_ok = upstream_train_success(fallback_http_code,
+                                                          fallback_response);
+                if (fallback_ok) {
+                    free(upstream_response);
+                    upstream_response = fallback_response;
+                    http_code = fallback_http_code;
+                    train_ok = true;
+                    used_event_box = true;
+                } else {
+                    free(fallback_response);
+                }
+            }
+        }
+    }
+
     if (train_ok) {
         db_event_face_crop_mark_named(crop_id, name);
         db_detection_event_set_sub_label(crop.event_id, name);
@@ -802,6 +933,8 @@ void handle_post_faces_train_crop(const http_request_t *req, http_response_t *re
     cJSON_AddNumberToObject(out, "event_id", (double)crop.event_id);
     cJSON_AddStringToObject(out, "name", name);
     cJSON_AddNumberToObject(out, "upstream_status", http_code);
+    cJSON_AddStringToObject(out, "training_source",
+                            used_event_box ? "event_bbox" : "crop");
     if (upstream_response && upstream_response[0]) {
         cJSON_AddStringToObject(out, "upstream_response", upstream_response);
     }
