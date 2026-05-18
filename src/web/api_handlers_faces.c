@@ -436,9 +436,17 @@ void handle_get_faces_list(const http_request_t *req, http_response_t *res) {
                 cJSON *thumbnail = cJSON_GetObjectItem(face, "thumbnail_url");
                 if (cJSON_IsNumber(id) && cJSON_IsString(thumbnail) &&
                     thumbnail->valuestring && thumbnail->valuestring[0]) {
+                    unsigned long long image_id = (unsigned long long)id->valuedouble;
+                    const char *faces_marker = strstr(thumbnail->valuestring, "/faces/");
+                    if (faces_marker) {
+                        char *end = NULL;
+                        unsigned long long parsed = strtoull(faces_marker + 7, &end, 10);
+                        if (parsed > 0 && end && strcmp(end, "/image") == 0) {
+                            image_id = parsed;
+                        }
+                    }
                     char local_url[96];
-                    snprintf(local_url, sizeof(local_url), "/api/faces/%lld/image",
-                             (long long)id->valuedouble);
+                    snprintf(local_url, sizeof(local_url), "/api/faces/%llu/image", image_id);
                     cJSON_SetValuestring(thumbnail, local_url);
                 }
             }
