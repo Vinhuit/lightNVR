@@ -18,6 +18,7 @@ import { formatUtils } from './recordings/formatUtils.js';
 import { useI18n } from '../../i18n.js';
 import { useQueryClient } from '../../query-client.js';
 import { createPlayerTelemetry } from '../../utils/player-telemetry.js';
+import { useAutoRetry } from './useAutoRetry.js';
 import 'webrtc-adapter';
 
 // Retry configuration for sending WebRTC offers to go2rtc.
@@ -106,27 +107,6 @@ export function WebRTCVideoCell({
   // Audio playback state (for hearing audio from camera)
   const [audioEnabled, setAudioEnabled] = useState(false);
 
-  // Effect to directly set the muted property on the video element
-  // This is necessary because React/Preact doesn't always update the muted attribute correctly
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = !audioEnabled;
-      console.log(`Set video muted=${!audioEnabled} for stream ${stream?.name || 'unknown'}`);
-
-      // Debug: Log audio track info
-      if (videoRef.current.srcObject) {
-        const audioTracks = videoRef.current.srcObject.getAudioTracks();
-        console.log(`Audio tracks for ${stream?.name}: ${audioTracks.length}`, audioTracks.map(t => ({
-          id: t.id,
-          label: t.label,
-          enabled: t.enabled,
-          muted: t.muted,
-          readyState: t.readyState
-        })));
-      }
-    }
-  }, [audioEnabled, stream?.name]);
-
   // PTZ controls state
   const [showPTZControls, setShowPTZControls] = useState(false);
 
@@ -143,6 +123,7 @@ export function WebRTCVideoCell({
   const videoRef = useRef(null);
   const cellRef = useRef(null);
   const peerConnectionRef = useRef(null);
+  const remoteStreamRef = useRef(null);
   const detectionOverlayRef = useRef(null);
   const abortControllerRef = useRef(null);
   const connectionMonitorRef = useRef(null);
@@ -151,10 +132,79 @@ export function WebRTCVideoCell({
   const noDataReconnectAttemptsRef = useRef(0); // Separate counter for ICE-connected-but-no-data retries
   const localStreamRef = useRef(null);
   const audioSenderRef = useRef(null);
+  const audioEnabledRef = useRef(false);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const audioLevelIntervalRef = useRef(null);
   const disconnectRecoveryTimeoutRef = useRef(null);
+
+  const applyAudioPlaybackState = useCallback((enabled) => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    videoElement.muted = !enabled;
+    videoElement.volume = enabled ? 1 : 0;
+
+    if (videoElement.srcObject) {
+      videoElement.srcObject.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+    }
+  }, []);
+
+  // Effect to directly set the muted property on the video element.
+  // This is necessary because React/Preact doesn't always update the muted attribute correctly.
+  useEffect(() => {
+    audioEnabledRef.current = audioEnabled;
+    applyAudioPlaybackState(audioEnabled);
+
+    if (videoRef.current) {
+      console.log(`Set video muted=${!audioEnabled} for stream ${stream?.name || 'unknown'}`);
+
+      // Debug: Log audio track info
+      if (videoRef.current.srcObject) {
+        const audioTracks = videoRef.current.srcObject.getAudioTracks();
+        console.log(`Audio tracks for ${stream?.name}: ${audioTracks.length}`, audioTracks.map(t => ({
+          id: t.id,
+          label: t.label,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState
+        })));
+      }
+    }
+  }, [audioEnabled, applyAudioPlaybackState, stream?.name]);
+
+  const handleAudioToggle = useCallback(() => {
+    const nextEnabled = !audioEnabledRef.current;
+    audioEnabledRef.current = nextEnabled;
+    setAudioEnabled(nextEnabled);
+    applyAudioPlaybackState(nextEnabled);
+
+    if (!nextEnabled) return;
+
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    const playPromise = videoElement.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch((err) => {
+        if (err?.name === 'AbortError') {
+          console.log(`Audio enable play() was interrupted for stream ${stream?.name || 'unknown'}`);
+          return;
+        }
+
+        console.warn(`Unable to enable camera audio for stream ${stream?.name || 'unknown'}:`, err);
+
+        if (err?.name === 'NotAllowedError') {
+          audioEnabledRef.current = false;
+          setAudioEnabled(false);
+          applyAudioPlaybackState(false);
+          showStatusMessage(t('live.audioPlaybackBlocked'), 'error', 5000);
+        }
+      });
+    }
+  }, [applyAudioPlaybackState, stream?.name, t]);
 
   // Initialize WebRTC connection when component mounts
   useEffect(() => {
@@ -221,18 +271,22 @@ export function WebRTCVideoCell({
         return;
       }
 
-      // Only set srcObject once to avoid interrupting pending play() calls
-      // When multiple tracks arrive (video + audio), each triggers ontrack
-      // Setting srcObject again interrupts the play() call from the first track
-      if (event.streams && event.streams[0]) {
-        if (!videoElement.srcObject || videoElement.srcObject !== event.streams[0]) {
-          videoElement.srcObject = event.streams[0];
-          console.log(`Set srcObject from ontrack event for stream ${stream.name}, tracks:`,
-            event.streams[0].getTracks().map(t => `${t.kind}:${t.readyState}:muted=${t.muted}`));
-        } else {
-          console.log(`srcObject already set for stream ${stream.name}, skipping to avoid interrupting play()`);
-        }
+      if (!remoteStreamRef.current) {
+        remoteStreamRef.current = new MediaStream();
       }
+
+      const remoteStream = remoteStreamRef.current;
+      if (!remoteStream.getTracks().some(track => track.id === event.track.id)) {
+        remoteStream.addTrack(event.track);
+      }
+
+      if (videoElement.srcObject !== remoteStream) {
+        videoElement.srcObject = remoteStream;
+      }
+
+      applyAudioPlaybackState(audioEnabledRef.current);
+      console.log(`Remote stream tracks for ${stream.name}:`,
+        remoteStream.getTracks().map(t => `${t.kind}:${t.readyState}:muted=${t.muted}`));
 
       if (event.track.kind === 'video') {
         console.log(`Video track received for stream ${stream.name}`);
@@ -458,6 +512,15 @@ export function WebRTCVideoCell({
         attemptPlay();
       } else if (event.track.kind === 'audio') {
         console.log(`Audio track received for stream ${stream.name}`);
+        applyAudioPlaybackState(audioEnabledRef.current);
+
+        if (audioEnabledRef.current) {
+          videoElement.play().catch(err => {
+            if (err.name !== 'AbortError') {
+              console.warn(`Failed to resume playback after audio track for stream ${stream.name}:`, err);
+            }
+          });
+        }
       }
     };
 
@@ -858,6 +921,7 @@ export function WebRTCVideoCell({
         tracks.forEach(track => track.stop());
         videoRef.current.srcObject = null;
       }
+      remoteStreamRef.current = null;
 
       // Close peer connection
       if (peerConnectionRef.current) {
@@ -870,7 +934,7 @@ export function WebRTCVideoCell({
     };
 
     return cleanupWebRTCResources;
-  }, [stream, retryCount, useSubStream, t]);
+  }, [stream, retryCount, useSubStream, t, applyAudioPlaybackState]);
 
   /**
    * Refresh the stream's go2rtc registration
@@ -922,6 +986,7 @@ export function WebRTCVideoCell({
       tracks.forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
+    remoteStreamRef.current = null;
 
     // Reset state
     setError(null);
@@ -943,6 +1008,14 @@ export function WebRTCVideoCell({
     // Increment retry count to trigger useEffect re-run
     setRetryCount(prev => prev + 1);
   };
+
+  // Auto-retry while the error overlay is visible — recovers unattended
+  // monitoring dashboards from transient drops (camera reboot, network
+  // blip, server restart) without a human clicking Retry. Returns the
+  // ticking countdown for the button label, or null when no retry is
+  // pending. Clicking the button manually cancels the timer (handleRetry
+  // clears `error` which unmounts the effect).
+  const autoRetryCountdown = useAutoRetry(error, handleRetry);
 
   /**
    * Pause stream for privacy — sets privacy_mode=true without touching the enabled flag.
@@ -1372,7 +1445,7 @@ export function WebRTCVideoCell({
           <button
             className={`audio-toggle-btn ${audioEnabled ? 'active' : ''}`}
             title={audioEnabled ? t('live.muteCameraAudio') : t('live.unmuteCameraAudio')}
-            onClick={() => setAudioEnabled(!audioEnabled)}
+            onClick={handleAudioToggle}
             style={{
               backgroundColor: audioEnabled ? 'rgba(34, 197, 94, 0.8)' : 'transparent',
               border: 'none',
@@ -1735,7 +1808,9 @@ export function WebRTCVideoCell({
               onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
               onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
             >
-              {t('common.retry')}
+              {autoRetryCountdown !== null && autoRetryCountdown > 0
+                ? t('live.autoRetryingIn', { seconds: autoRetryCountdown })
+                : t('common.retry')}
             </button>
           </div>
         </div>
