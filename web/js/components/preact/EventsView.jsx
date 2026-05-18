@@ -43,9 +43,13 @@ function normalizeEvents(response) {
 }
 
 function normalizeStreams(response) {
-  if (!Array.isArray(response)) return [];
-  return response
-    .map((stream) => stream?.name || stream?.id || '')
+  const streams = Array.isArray(response)
+    ? response
+    : Array.isArray(response?.streams)
+      ? response.streams
+      : [];
+  return streams
+    .map((stream) => (typeof stream === 'string' ? stream : stream?.name || stream?.id || ''))
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
 }
@@ -302,7 +306,12 @@ export function EventsView() {
   );
 
   const events = normalizeEvents(data);
-  const streamOptions = useMemo(() => normalizeStreams(streamsData), [streamsData]);
+  const streamOptions = useMemo(() => {
+    const fromApi = normalizeStreams(streamsData);
+    const fromEvents = events.map((event) => event.stream_name).filter(Boolean);
+    return Array.from(new Set([...fromApi, ...fromEvents]))
+      .sort((a, b) => a.localeCompare(b));
+  }, [streamsData, events]);
   const labelOptions = useMemo(() => {
     const fromApi = normalizeLabels(labelsData);
     const fromEvents = events.map((event) => event.label).filter(Boolean);
@@ -351,31 +360,37 @@ export function EventsView() {
       >
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium">Stream</span>
-          <select
+          <input
             name="stream"
-            className="select select-bordered w-full"
+            list="events-stream-options"
+            className="input input-bordered w-full"
             value={filters.stream}
-            onChange={handleFilterChange}
-          >
-            <option value="">All streams</option>
+            onInput={handleFilterChange}
+            placeholder="All streams"
+            autoComplete="off"
+          />
+          <datalist id="events-stream-options">
             {streamOptions.map((stream) => (
               <option key={stream} value={stream}>{stream}</option>
             ))}
-          </select>
+          </datalist>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium">Object</span>
-          <select
+          <input
             name="label"
-            className="select select-bordered w-full"
+            list="events-object-options"
+            className="input input-bordered w-full"
             value={filters.label}
-            onChange={handleFilterChange}
-          >
-            <option value="">All objects</option>
+            onInput={handleFilterChange}
+            placeholder="All objects"
+            autoComplete="off"
+          />
+          <datalist id="events-object-options">
             {labelOptions.map((label) => (
               <option key={label} value={label}>{label}</option>
             ))}
-          </select>
+          </datalist>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium">Status</span>
