@@ -35,6 +35,32 @@ static int require_admin(const http_request_t *req, http_response_t *res) {
     return 1;
 }
 
+static void add_best_box_to_event_json(cJSON *obj, const detection_event_t *event) {
+    detection_t detection;
+    if (!obj || !event ||
+        db_detection_event_get_best_detection_box(event, &detection) != 0 ||
+        detection.width <= 0.0f || detection.height <= 0.0f) {
+        return;
+    }
+
+    cJSON *box = cJSON_CreateObject();
+    if (!box) {
+        return;
+    }
+
+    cJSON_AddStringToObject(box, "label", detection.label);
+    cJSON_AddNumberToObject(box, "confidence", detection.confidence);
+    cJSON_AddNumberToObject(box, "x", detection.x);
+    cJSON_AddNumberToObject(box, "y", detection.y);
+    cJSON_AddNumberToObject(box, "width", detection.width);
+    cJSON_AddNumberToObject(box, "height", detection.height);
+    cJSON_AddNumberToObject(box, "track_id", detection.track_id);
+    if (detection.zone_id[0] != '\0') {
+        cJSON_AddStringToObject(box, "zone_id", detection.zone_id);
+    }
+    cJSON_AddItemToObject(obj, "best_box", box);
+}
+
 static cJSON *event_to_json(const detection_event_t *event) {
     cJSON *obj = cJSON_CreateObject();
     if (!obj) return NULL;
@@ -65,6 +91,7 @@ static cJSON *event_to_json(const detection_event_t *event) {
     cJSON_AddStringToObject(obj, "status", event->status);
     cJSON_AddNumberToObject(obj, "created_at", (double)event->created_at);
     cJSON_AddNumberToObject(obj, "updated_at", (double)event->updated_at);
+    add_best_box_to_event_json(obj, event);
 
     return obj;
 }

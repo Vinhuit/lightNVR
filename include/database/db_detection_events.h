@@ -106,6 +106,9 @@ int db_detection_events_list(const char *stream_name,
 
 int db_detection_event_get(uint64_t event_id, detection_event_t *event);
 
+int db_detection_event_get_best_detection_box(const detection_event_t *event,
+                                              detection_t *detection);
+
 int db_detection_event_set_thumbnail(uint64_t event_id,
                                      const char *thumbnail_path);
 

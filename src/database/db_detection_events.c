@@ -461,6 +461,71 @@ int db_detection_event_get(uint64_t event_id, detection_event_t *event) {
     return rc;
 }
 
+int db_detection_event_get_best_detection_box(const detection_event_t *event,
+                                              detection_t *detection) {
+    sqlite3 *db = get_db_handle();
+    pthread_mutex_t *db_mutex = get_db_mutex();
+    sqlite3_stmt *stmt = NULL;
+
+    if (!db || !db_mutex || !event || !detection || event->stream_name[0] == '\0' ||
+        event->label[0] == '\0') {
+        return -1;
+    }
+
+    memset(detection, 0, sizeof(*detection));
+    detection->track_id = -1;
+
+    time_t best_time = event->best_time > 0 ? event->best_time : event->start_time;
+    if (best_time <= 0) {
+        return -1;
+    }
+
+    const char *sql =
+        "SELECT label, confidence, x, y, width, height, COALESCE(track_id, -1), COALESCE(zone_id, '') "
+        "FROM detections "
+        "WHERE stream_name = ? AND label = ? "
+        "  AND timestamp BETWEEN ? AND ? "
+        "  AND (? < 0 OR COALESCE(track_id, -1) = ?) "
+        "  AND (? = '' OR COALESCE(zone_id, '') = ? OR COALESCE(zone_id, '') = '') "
+        "ORDER BY ABS(confidence - ?) ASC, ABS(timestamp - ?) ASC, confidence DESC "
+        "LIMIT 1;";
+
+    pthread_mutex_lock(db_mutex);
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        log_error("Failed to prepare event detection box lookup: %s", sqlite3_errmsg(db));
+        pthread_mutex_unlock(db_mutex);
+        return -1;
+    }
+
+    sqlite3_bind_text(stmt, 1, event->stream_name, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, event->label, -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt, 3, (sqlite3_int64)(best_time - 1));
+    sqlite3_bind_int64(stmt, 4, (sqlite3_int64)(best_time + 1));
+    sqlite3_bind_int(stmt, 5, event->track_id);
+    sqlite3_bind_int(stmt, 6, event->track_id);
+    sqlite3_bind_text(stmt, 7, event->zone_id, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 8, event->zone_id, -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 9, event->best_confidence);
+    sqlite3_bind_int64(stmt, 10, (sqlite3_int64)best_time);
+
+    int rc = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        copy_sql_text(stmt, 0, detection->label, sizeof(detection->label));
+        detection->confidence = (float)sqlite3_column_double(stmt, 1);
+        detection->x = (float)sqlite3_column_double(stmt, 2);
+        detection->y = (float)sqlite3_column_double(stmt, 3);
+        detection->width = (float)sqlite3_column_double(stmt, 4);
+        detection->height = (float)sqlite3_column_double(stmt, 5);
+        detection->track_id = sqlite3_column_int(stmt, 6);
+        copy_sql_text(stmt, 7, detection->zone_id, sizeof(detection->zone_id));
+        rc = 0;
+    }
+
+    sqlite3_finalize(stmt);
+    pthread_mutex_unlock(db_mutex);
+    return rc;
+}
+
 int db_detection_event_set_thumbnail(uint64_t event_id,
                                      const char *thumbnail_path) {
     sqlite3 *db = get_db_handle();

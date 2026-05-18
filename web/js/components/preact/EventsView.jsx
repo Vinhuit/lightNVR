@@ -72,6 +72,139 @@ function buildEventTimelineUrl(event) {
   return formatUtils.getTimelineUrl(event.stream_name, event.best_time || event.start_time);
 }
 
+function clampPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, numeric * 100));
+}
+
+function getEventBox(event) {
+  const box = event?.best_box || event?.bbox || event?.box;
+  if (!box) return null;
+
+  const x = Number(box.x);
+  const y = Number(box.y);
+  const width = Number(box.width ?? box.w);
+  const height = Number(box.height ?? box.h);
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return {
+    x: clampPercent(x),
+    y: clampPercent(y),
+    width: Math.max(1, Math.min(100, width * 100)),
+    height: Math.max(1, Math.min(100, height * 100)),
+    label: box.label || event?.label || '',
+    confidence: Number.isFinite(Number(box.confidence)) ? Number(box.confidence) : event?.best_confidence
+  };
+}
+
+function EventBoxOverlay({ event, compact = false }) {
+  const box = getEventBox(event);
+  if (!box) return null;
+
+  const label = box.label
+    ? `${box.label}${formatConfidence(box.confidence) !== '-' ? ` ${formatConfidence(box.confidence)}` : ''}`
+    : '';
+
+  return (
+    <div
+      className="pointer-events-none absolute border-2 border-emerald-400 shadow-[0_0_0_1px_rgba(0,0,0,0.65)]"
+      style={{
+        left: `${box.x}%`,
+        top: `${box.y}%`,
+        width: `${Math.min(box.width, 100 - box.x)}%`,
+        height: `${Math.min(box.height, 100 - box.y)}%`
+      }}
+    >
+      {!compact && label && (
+        <div className="absolute left-0 top-0 max-w-full truncate rounded-br bg-emerald-500 px-1.5 py-0.5 text-xs font-semibold text-white shadow">
+          {label}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventSnapshot({ event, variant = 'thumb', onOpen }) {
+  if (!hasEventSnapshot(event)) {
+    const placeholderClass = variant === 'thumb'
+      ? 'h-14 w-24 text-xs'
+      : 'w-full aspect-video text-sm';
+    return (
+      <div className={`${placeholderClass} rounded bg-muted flex items-center justify-center text-muted-foreground`}>
+        No image
+      </div>
+    );
+  }
+
+  const isModal = variant === 'modal';
+  const wrapperClass = variant === 'thumb'
+    ? 'relative h-14 w-24 overflow-hidden rounded bg-muted'
+    : isModal
+      ? 'relative inline-block max-w-full'
+      : 'relative w-full aspect-video overflow-hidden rounded bg-muted';
+  const imgClass = variant === 'thumb'
+    ? 'h-full w-full object-cover'
+    : isModal
+      ? 'block max-h-[78vh] max-w-[90vw] rounded bg-muted'
+      : 'h-full w-full object-cover';
+
+  const image = (
+    <div className={wrapperClass}>
+      <img
+        src={buildEventSnapshotUrl(event)}
+        alt={`${event.label || 'event'} snapshot`}
+        className={imgClass}
+        loading="lazy"
+      />
+      <EventBoxOverlay event={event} compact={variant === 'thumb'} />
+    </div>
+  );
+
+  if (!onOpen) return image;
+
+  return (
+    <button
+      type="button"
+      className="block rounded focus:outline-none focus:ring-2 focus:ring-primary"
+      onClick={() => onOpen(event)}
+      title="Open snapshot"
+    >
+      {image}
+    </button>
+  );
+}
+
+function SnapshotModal({ event, onClose }) {
+  if (!event) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Event snapshot"
+    >
+      <div className="max-w-[94vw]" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between gap-3 text-white">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">
+              {event.stream_name || 'Event'} - {event.label || 'object'} - {formatEventTime(event.best_time || event.start_time)}
+            </div>
+          </div>
+          <button type="button" className="btn-secondary bg-white text-black hover:bg-white/90" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <EventSnapshot event={event} variant="modal" />
+      </div>
+    </div>
+  );
+}
+
 function buildQueryString(filters) {
   const params = new URLSearchParams();
   params.set('limit', '100');
@@ -141,6 +274,7 @@ export function EventsView() {
   const [filters, setFilters] = useState({ stream: '', label: '', status: 'all' });
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const [expandedEventId, setExpandedEventId] = useState(null);
+  const [snapshotModalEvent, setSnapshotModalEvent] = useState(null);
 
   const { data: streamsData } = useQuery(
     ['events-streams'],
@@ -294,18 +428,7 @@ export function EventsView() {
                 <Fragment key={event.id}>
                   <tr>
                     <td className="px-4 py-3">
-                      {hasEventSnapshot(event) ? (
-                        <img
-                          src={buildEventSnapshotUrl(event)}
-                          alt={`${event.label || 'event'} snapshot`}
-                          className="h-14 w-24 rounded object-cover bg-muted"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="h-14 w-24 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
-                          No image
-                        </div>
-                      )}
+                      <EventSnapshot event={event} variant="thumb" onOpen={setSnapshotModalEvent} />
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">{formatEventTime(event.best_time || event.start_time)}</td>
                     <td className="px-4 py-3">{event.stream_name || '-'}</td>
@@ -344,18 +467,7 @@ export function EventsView() {
                       <td className="px-4 py-3 bg-muted/30" colSpan="8">
                         <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
                           <div>
-                            {hasEventSnapshot(event) ? (
-                              <img
-                                src={buildEventSnapshotUrl(event)}
-                                alt={`${event.label || 'event'} snapshot`}
-                                className="w-full aspect-video rounded object-cover bg-muted"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="w-full aspect-video rounded bg-muted flex items-center justify-center text-sm text-muted-foreground">
-                                No image
-                              </div>
-                            )}
+                            <EventSnapshot event={event} variant="detail" onOpen={setSnapshotModalEvent} />
                           </div>
                           <div>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
@@ -388,6 +500,7 @@ export function EventsView() {
           </table>
         </div>
       )}
+      <SnapshotModal event={snapshotModalEvent} onClose={() => setSnapshotModalEvent(null)} />
     </div>
   );
 }
