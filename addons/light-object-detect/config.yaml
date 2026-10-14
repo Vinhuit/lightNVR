@@ -1,0 +1,28 @@
+name: Light Object Detect
+version: "0.1.0"
+slug: light_object_detect
+description: Separate object, face and classification API for LightNVR
+arch:
+  - amd64
+startup: services
+boot: auto
+init: true
+stage: experimental
+host_network: false
+backup: cold
+ports:
+  8000/tcp: null
+ports_description:
+  8000/tcp: Optional detection API access on the LAN (no authentication)
+options:
+  confidence_threshold: 0.5
+  inference_threads: 1
+  max_image_size: 1024
+  face_detection_size: 960
+  classification_enabled: true
+schema:
+  confidence_threshold: float(0,1)
+  inference_threads: int(1,32)
+  max_image_size: int(128,4096)
+  face_detection_size: int(320,1920)
+  classification_enabled: bool

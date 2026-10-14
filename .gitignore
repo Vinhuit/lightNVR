@@ -113,3 +113,5 @@ lightnvr-buildroot/
 lightnvr-provisioning-prd.docx.md
 .mcp.json
 *.patch
+!addons/light-object-detect/
+!addons/light-object-detect/**
